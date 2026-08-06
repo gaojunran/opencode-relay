@@ -1,5 +1,7 @@
 # opencode-relay
 
+[**中文**](README.zh-CN.md)
+
 An [opencode](https://opencode.ai) plugin that turns a single persistent session into a multi-project development hub. The agent stays in one "home" session and switches between projects through an explicit `switch_project` tool. Every switch creates a dedicated git worktree per session, so multiple sessions can work on the same project in parallel without any locking.
 
 > **Current status**: actively developed. `list_project`, `switch_project`, worktree lifecycle, guard interception and cleanup are implemented and tested; cc-connect (WeCom/WeChat Work bridge) integration is planned.

@@ -1,5 +1,7 @@
 # opencode-relay
 
+[**English**](README.md)
+
 一个 [opencode](https://opencode.ai) 插件，把一个常驻会话变成多项目开发中心。Agent 停留在一个"home"会话中，通过显式的 `switch_project` 工具切换项目。每次切换都会为当前会话创建一个独立的 git worktree，多个会话可以零锁并行工作在同一项目上。
 
 > **当前状态**：活跃开发中。`list_project`、`switch_project`、worktree 生命周期、防绕过拦截与清理已实现并通过测试；cc-connect（企微桥接）集成已规划。
