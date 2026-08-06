@@ -185,6 +185,11 @@ tool.switch_project({ project_id: string })
 
 ### 4.4 system.transform hook（每轮注入）
 
+**两种形态**（同一 hook，按会话是否已切项目分流）：
+
+1. **未切项目（无状态）→ 注入项目清单引导**：把 `list_project` 的结果（项目 id/name/description 列表）注入 system prompt，并附"请调用 switch_project 切换"的引导，让 Agent 一开始就知道有哪些项目可选。由 `[inject].list_projects`（默认 `true`）控制；项目注册表为空时跳过。
+2. **已切项目（有状态）→ 注入当前项目上下文**：注入模板渲染结果（`{project_id}`/`{project_name}`/`{workdir}`/`{branch}`）。
+
 ```ts
 hook: { experimental: { chat: { system: { transform: async ({sessionID}, output) => {
   const cur = await readCurrent(sessionID);

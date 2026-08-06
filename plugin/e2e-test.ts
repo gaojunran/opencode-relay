@@ -144,6 +144,15 @@ if (!sysOut.system[0].includes("projA") || !sysOut.system[0].includes(workdir)) 
 await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_other", callID: "c6" }, { args: { command: "ls", workdir: "/etc" } })
 console.log("\n未切项目会话不拦截 ✓")
 
+// 7b. 未切项目会话：system.transform 注入项目清单引导 switch
+const sysOut2: { system: string[] } = { system: [] }
+await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_other", model: {} as any }, sysOut2)
+console.log("\n== system.transform 未切项目（清单引导）==")
+console.log(sysOut2.system[0])
+if (!sysOut2.system[0].includes("projA")) throw new Error("未切项目会话未注入项目清单!")
+if (!sysOut2.system[0].includes("switch_project")) throw new Error("清单注入缺少 switch 引导!")
+console.log("未切项目会话注入项目清单 + switch 引导 ✓")
+
 console.log("\n✅ P1 全部验证通过")
 // 清理
 fs.rmSync(R, { recursive: true, force: true })

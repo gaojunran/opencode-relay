@@ -69,6 +69,8 @@ stale_days = 7
 enabled = true
 # 注入模板，支持占位符: {project_id} {project_name} {workdir} {branch}
 template = "当前项目: {project_name}（{project_id}），工作目录: {workdir}，分支: {branch}。bash 工具请用 workdir 参数，文件操作用绝对路径，不要直接修改主副本。"
+# 会话尚未切换项目时，向 system prompt 注入可用项目清单，引导 Agent 调用 switch_project
+list_projects = true
 
 # ---------- 防绕过 ----------
 

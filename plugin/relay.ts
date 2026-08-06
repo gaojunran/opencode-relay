@@ -107,7 +107,21 @@ function buildHooks(opts: {
       if (!sessionID || !config.inject.enabled) return;
       const state = readSessionState(config, sessionID);
       if (!state) {
-        log.debug(`[system.transform] 会话 ${sessionID} 无状态，跳过注入`);
+        if (config.inject.list_projects) {
+          const projects = getProjectRegistry(config);
+          if (projects.length > 0) {
+            const lines = projects.map((p) => {
+              const desc = p.description ? `（${p.description}）` : "";
+              return `- ${p.id}: ${p.name}${desc}`;
+            });
+            output.system.push(
+              `可用项目（请调用 switch_project({project_id}) 切换到目标项目，id 见列表）:\n${lines.join("\n")}`,
+            );
+            log.debug(`[system.transform] 会话 ${sessionID} 无状态，注入项目清单（${projects.length} 个）`);
+          }
+        } else {
+          log.debug(`[system.transform] 会话 ${sessionID} 无状态，跳过注入`);
+        }
         return;
       }
       const text = renderTemplate(config.inject.template, state);

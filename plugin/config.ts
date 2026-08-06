@@ -25,7 +25,7 @@ export interface RelayConfig {
   paths: { workspace_root: string; worktree_root: string; state_dir: string };
   projects: { items: ProjectItem[]; scan_dir?: string };
   worktree: { branch_prefix: string; end_of_session: EndOfSessionStrategy; remote: string; stale_days: number };
-  inject: { enabled: boolean; template: string };
+  inject: { enabled: boolean; template: string; list_projects: boolean };
   guard: { enabled: boolean; reject_on_violation: boolean; deny_paths: string[]; allow_paths: string[] };
   permissions: { enabled: boolean; rules: PermissionRule[] };
   list: { include_description: boolean };
@@ -298,6 +298,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
     inject: {
       enabled: asBoolean(inject.enabled, true),
       template: asString(inject.template, DEFAULT_TEMPLATE),
+      list_projects: asBoolean(inject.list_projects, true),
     },
     guard: {
       enabled: asBoolean(guard.enabled, true),
