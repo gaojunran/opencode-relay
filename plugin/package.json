@@ -1,0 +1,11 @@
+{
+  "name": "opencode-relay-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.12",
+    "@types/node": "16.9.1",
+    "typescript": "5.9.3"
+  }
+}
