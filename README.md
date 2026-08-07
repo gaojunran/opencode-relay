@@ -58,8 +58,17 @@ Session state lives in external files (`~/.opencode/state/<sessionID>.json`) bec
 
 ## Installation
 
-1. Clone or copy the plugin into opencode's user-level plugin directory, e.g. `~/.config/opencode/plugin/opencode-relay/` (confirm the loader path for your opencode version).
-2. Create the config file:
+### From npm (recommended)
+
+Add the plugin to your opencode config (`~/.config/opencode/opencode.json`). opencode installs it automatically on startup — no manual `npm install`:
+
+```json
+{
+  "plugin": ["opencode-relay-plugin"]
+}
+```
+
+Then create the config file:
 
 ```bash
 mkdir -p ~/.config/opencode-relay
@@ -67,7 +76,13 @@ cp config.example.toml ~/.config/opencode-relay/config.toml
 # edit to match your projects
 ```
 
-3. (Optional) Bridge with cc-connect: set `[projects.agent.options] work_dir = "<home>"` and `mode = "yolo"` in cc-connect's config. cc-connect needs no code changes.
+### From source
+
+Clone or copy the plugin into opencode's user-level plugin directory, e.g. `~/.config/opencode/plugin/opencode-relay/`, then follow the config steps above.
+
+### Bridge with cc-connect (optional)
+
+Set `[projects.agent.options] work_dir = "<home>"` and `mode = "yolo"` in cc-connect's config. cc-connect needs no code changes.
 
 ## Configuration
 

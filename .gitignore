@@ -1,6 +1,9 @@
 # 依赖
 node_modules/
 
+# 构建产物
+plugin/dist/
+
 # 日志
 *.log
 

@@ -1,0 +1,114 @@
+# opencode-relay example configuration
+# Default path: ~/.config/opencode-relay/config.toml
+# Override the path with the OPENCODE_RELAY_CONFIG environment variable
+# Changes take effect after restarting the opencode session (the plugin reads the config once at startup)
+
+[general]
+# Master switch
+enabled = true
+# Home directory: the plugin loads only when the session directory is inside home, otherwise it opts out (loads no plugin logic)
+# Defaults to $HOME when unset; usually no need to change
+# home = "/home/nebula"
+# Log level: debug | info | warn | error
+log_level = "info"
+
+# ---------- Paths ----------
+
+[paths]
+# Main-copy root: clean baseline of projects, never written by the agent directly
+workspace_root = "~/workspace"
+# Worktree root: agent working copies (switch_project unconditionally creates an isolated worktree here)
+worktree_root = "~/.opencode/worktrees"
+# State dir: current project state stored per sessionID
+state_dir = "~/.opencode/state"
+
+# ---------- Project registry ----------
+
+[projects]
+# Pick one of the two ways:
+# 1. Explicit list (recommended: list_project only exposes id/name, paths stay invisible to the agent)
+# 2. Auto-scan: set scan_dir and the plugin collects subdirectories containing .git as projects
+#    scan_dir = "~/workspace"
+#    The explicit list takes precedence over scanning; repo_path is generated automatically in scan mode
+
+[[projects.items]]
+id = "relay"
+name = "opencode-relay"
+repo_path = "~/workspace/relay"
+description = "The opencode-relay project itself"
+
+[[projects.items]]
+id = "projA"
+name = "projA"
+repo_path = "~/workspace/projA"
+
+[[projects.items]]
+id = "projB"
+name = "projB"
+repo_path = "~/workspace/projB"
+
+# ---------- Worktree lifecycle ----------
+
+[worktree]
+# Worktree branch prefix; actual branch = branch_prefix + <sessionID short id>
+branch_prefix = "opencode/"
+# Session-end (dispose) strategy:
+#   keep    - keep the branch + worktree dir for manual review/merge (default)
+#   push    - auto git push the branch to remote
+#   cleanup - delete the worktree dir (the branch stays)
+end_of_session = "keep"
+# Remote name used for auto push
+remote = "origin"
+# Inactivity reclaim threshold (days): a worktree whose last activity exceeds this is considered reclaimable (section 4.8)
+stale_days = 7
+
+# ---------- Context injection ----------
+
+[inject]
+# Inject the current project context into the system prompt every round
+enabled = true
+# Injection template with placeholders: {project_id} {project_name} {workdir} {branch}
+template = "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}. Use the workdir parameter for bash, absolute paths for file operations, and never modify the main copy."
+# When the session has not switched to a project yet, inject the available project list into the system prompt to guide the agent to call switch_project
+list_projects = true
+# A fixed guide is always injected: use switch_project for projects, and register_project for repositories not yet in the list
+
+# ---------- Anti-bypass ----------
+
+[guard]
+# Hard interception at the tool layer (tool.execute.before)
+enabled = true
+# Reject execution when outside the current project working dir (false: log only, do not intercept)
+reject_on_violation = true
+# Additional deny path patterns (glob), appended to the default deny set (workspace_root fully + outside the working dir)
+deny_paths = [
+  # "/home/nebula/private/**",
+]
+# Additional allow path patterns (glob), with higher precedence than deny_paths
+allow_paths = [
+  # "/home/nebula/.opencode/**",
+]
+# Directories outside the worktree that are always allowed (e.g. temp dirs). Empty list disables this.
+# Defaults to ["/tmp"] when omitted.
+allow_dirs = [
+  "/tmp",
+]
+
+# ---------- Permission rules fallback (optional) ----------
+
+# Permissions rules forwarded to the opencode agent, as the last line of defense when the plugin is disabled.
+# Leave empty to use the plugin's built-in defaults (worktree allow / main-copy deny / everything else ask).
+# Note: the opencode permission layer is skipped when cc-connect is configured with mode = "yolo".
+[permissions]
+enabled = false
+rules = [
+  # { action = "*", resource = "*", effect = "ask" },
+  # { action = "bash", resource = "*", effect = "allow" },
+  # { action = "write", resource = "/home/nebula/workspace/**", effect = "deny" },
+]
+
+# ---------- list_project display ----------
+
+[list]
+# Whether list_project returns the description field
+include_description = true

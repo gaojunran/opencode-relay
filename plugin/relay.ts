@@ -702,10 +702,21 @@ export function cleanupStaleWorktrees(
   return summary;
 }
 
+/** Resolve symlinks, falling back to the nearest existing ancestor so non-existent paths (e.g. a file being written) still compare correctly. /home -> /data/home aliases must not break the worktree boundary. */
+function realpathBest(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    const dir = path.dirname(p);
+    if (dir === p) return path.resolve(p);
+    return path.join(realpathBest(dir), path.basename(p));
+  }
+}
+
 /** Prefix comparison with a path separator boundary, so /a/foo and /a/foobar are not confused */
 function isInside(candidate: string, container: string): boolean {
-  const resolved = path.resolve(candidate);
-  const base = path.resolve(container);
+  const resolved = realpathBest(candidate);
+  const base = realpathBest(container);
   return resolved === base || resolved.startsWith(`${base}${path.sep}`);
 }
 

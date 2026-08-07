@@ -58,8 +58,17 @@ opencode run（cc-connect spawn 的 in-process server）
 
 ## 安装
 
-1. 将插件克隆或复制到 opencode 用户级插件目录，例如 `~/.config/opencode/plugin/opencode-relay/`（按你的 opencode 版本确认加载路径）。
-2. 创建配置文件：
+### 通过 npm 安装（推荐）
+
+在 opencode 配置（`~/.config/opencode/opencode.json`）中声明插件。opencode 启动时自动安装，无需手动 `npm install`：
+
+```json
+{
+  "plugin": ["opencode-relay-plugin"]
+}
+```
+
+然后创建配置文件：
 
 ```bash
 mkdir -p ~/.config/opencode-relay
@@ -67,7 +76,13 @@ cp config.example.toml ~/.config/opencode-relay/config.toml
 # 按你的项目修改
 ```
 
-3. （可选）对接 cc-connect：在其配置中设置 `[projects.agent.options] work_dir = "<home>"` 和 `mode = "yolo"`。cc-connect 无需任何代码改动。
+### 从源码安装
+
+将插件克隆或复制到 opencode 用户级插件目录，例如 `~/.config/opencode/plugin/opencode-relay/`（按你的 opencode 版本确认加载路径），然后按上述步骤创建配置。
+
+### 对接 cc-connect（可选）
+
+在其配置中设置 `[projects.agent.options] work_dir = "<home>"` 和 `mode = "yolo"`。cc-connect 无需任何代码改动。
 
 ## 配置
 
