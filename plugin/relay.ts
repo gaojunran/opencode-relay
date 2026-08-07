@@ -136,7 +136,7 @@ function buildHooks(opts: {
           }
           const removed = removeSessionState(config, context.sessionID);
           log.info("leave_project", 
-            `session ${context.sessionID} left project ${state.project_id}, state removed: ${removed} (worktree kept: ${state.workdir}, branch=${state.worktree_branch})`,
+            `session ${context.sessionID} left project ${state.project_id}, state removed: ${removed} (worktree kept: ${state.workdir}, branch=${liveBranch(state, log)})`,
           );
           return {
             title: "Left project",
@@ -144,7 +144,7 @@ function buildHooks(opts: {
               {
                 left_project: state.project_id,
                 workdir_preserved: state.workdir,
-                branch_preserved: state.worktree_branch,
+                branch_preserved: liveBranch(state, log),
                 note: "worktree and branch preserved, no changes lost; use cleanup_worktrees to reclaim",
               },
               null,
@@ -179,7 +179,7 @@ function buildHooks(opts: {
         log.debug("system.transform", `session ${sessionID} has no state, injected project guide`);
         return;
       }
-      const text = renderTemplate(config.inject.template, state);
+      const text = renderTemplate(config.inject.template, state, log);
       output.system.push(text);
       output.system.push(PROJECT_GUIDE);
       if (config.inject.agents_md) {
@@ -294,7 +294,7 @@ function handleEndOfSession(
   state: SessionState,
 ): void {
   const strategy = config.worktree.end_of_session;
-  log.info("dispose", `session ${sessionID} end_of_session=${strategy} (project=${state.project_id}, branch=${state.worktree_branch})`);
+  log.info("dispose", `session ${sessionID} end_of_session=${strategy} (project=${state.project_id}, branch=${liveBranch(state, log)})`);
   log.debug("dispose", `entering branch: end_of_session=${strategy}`);
 
   if (strategy === "keep") return;
@@ -416,7 +416,7 @@ function switchProject(
   const existing = readSessionState(config, sessionID);
   log.debug("switch_project", `existing state: ${existing ? JSON.stringify(existing) : "null"}`);
   if (existing && existing.project_id === project.id && existing.workdir && fs.existsSync(existing.workdir)) {
-    log.info("switch_project", `reusing existing worktree in session: ${existing.workdir} (branch=${existing.worktree_branch})`);
+    log.info("switch_project", `reusing existing worktree in session: ${existing.workdir} (branch=${liveBranch(existing, log)})`);
     return successResult(existing);
   }
 
@@ -597,12 +597,17 @@ function listProjectSkills(workdir: string): string[] {
   return skills;
 }
 
-function renderTemplate(template: string, state: SessionState): string {
+/** Resolve the branch shown to the agent: the worktree's current branch, falling back to the state record. */
+function liveBranch(state: SessionState, log: RelayLogger): string {
+  return currentBranch(state.workdir, log) ?? state.worktree_branch;
+}
+
+function renderTemplate(template: string, state: SessionState, log: RelayLogger): string {
   return template
     .replaceAll("{project_id}", state.project_id)
     .replaceAll("{project_name}", state.project_name)
     .replaceAll("{workdir}", state.workdir)
-    .replaceAll("{branch}", state.worktree_branch);
+    .replaceAll("{branch}", liveBranch(state, log));
 }
 
 function guardToolCall(opts: {
