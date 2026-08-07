@@ -2,6 +2,7 @@ import type { Hooks, PluginInput, PluginModule, ToolResult } from "@opencode-ai/
 import { tool } from "@opencode-ai/plugin/tool";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   createLogger,
   findProject,
@@ -181,6 +182,26 @@ function buildHooks(opts: {
       const text = renderTemplate(config.inject.template, state);
       output.system.push(text);
       output.system.push(PROJECT_GUIDE);
+      if (config.inject.agents_md) {
+        const instructions = readProjectInstructions(state.workdir);
+        if (instructions) {
+          output.system.push(
+            `Project instructions (from the current worktree, ${path.basename(findAgentsMd(state.workdir) ?? "")}):\n${instructions}`,
+          );
+          log.debug(`[system.transform] session ${sessionID} injected worktree instructions (${instructions.length} chars)`);
+        } else {
+          log.debug(`[system.transform] session ${sessionID} no instruction file in worktree, skipped AGENTS.md injection`);
+        }
+      }
+      if (config.inject.skills) {
+        const skills = listProjectSkills(state.workdir);
+        if (skills.length > 0) {
+          output.system.push(
+            `Project skills available in this worktree (load them with the skill tool when relevant):\n${skills.map((s) => `- ${s}`).join("\n")}`,
+          );
+          log.debug(`[system.transform] session ${sessionID} injected ${skills.length} project skills`);
+        }
+      }
       log.debug(
         `[system.transform] session ${sessionID} injected project ${state.project_id}, first 60 chars: ${text.slice(0, 60)}`,
       );
@@ -201,6 +222,19 @@ function buildHooks(opts: {
         return;
       }
       guardToolCall({ config, log, instanceDir, toolName, args: output.args ?? {}, state });
+    },
+
+    // Inject the project env (captured by on_switch) into every bash invocation. The bash tool
+    // spawns a fresh process per call (exp-4: shell -c, non-login, no rc), so process-wide env
+    // would not survive; this hook runs before every spawn (shell.ts:416-426).
+    "shell.env": async (hookInput, output) => {
+      const { sessionID } = hookInput;
+      if (!sessionID) return;
+      const state = readSessionState(config, sessionID);
+      if (!state || Object.keys(state.env).length === 0) return;
+      const count = Object.keys(state.env).length;
+      log.debug(`[shell.env] session ${sessionID} injecting ${count} env vars from project ${state.project_id}`);
+      Object.assign(output.env, state.env);
     },
 
     // Record the assistant text parts as they stream to completion (exp-2: this is the only
@@ -302,6 +336,63 @@ function handleEndOfSession(
   }
 }
 
+/**
+ * Parse a command dump (e.g. `mise env` / `direnv export bash` output) into an env map.
+ * Accepts both `export KEY=VALUE` and bare `KEY=VALUE` lines; strips quotes and trailing `;`.
+ */
+export function parseEnvDump(text: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!m) continue;
+    let value = m[2].trim().replace(/;+$/, "");
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    env[m[1]] = value;
+  }
+  return env;
+}
+
+/**
+ * Run the configured on_switch command in the worktree and capture its env dump.
+ * {{dir}} is replaced with the worktree path. Failures are logged and swallowed so a
+ * misconfigured command never blocks the switch.
+ */
+export function runOnSwitch(
+  config: RelayConfig,
+  log: RelayLogger,
+  workdir: string,
+): Record<string, string> {
+  const cmd = config.worktree.on_switch;
+  if (!cmd) return {};
+  const expanded = cmd.replace(/\{\{dir\}\}/g, workdir);
+  log.info(`[on_switch] running in ${workdir}: ${expanded}`);
+  const res = spawnSync(expanded, {
+    cwd: workdir,
+    shell: true,
+    encoding: "utf8",
+    timeout: 30000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (res.error) {
+    log.error(`[on_switch] spawn failed: ${res.error.message}`);
+    return {};
+  }
+  if (res.status !== 0) {
+    log.warn(`[on_switch] command exited ${res.status}: ${truncate((res.stderr || res.stdout || "").slice(0, 500), 500)}`);
+    return {};
+  }
+  const env = parseEnvDump(res.stdout ?? "");
+  log.debug(`[on_switch] captured ${Object.keys(env).length} env vars`);
+  return env;
+}
+
 function switchProject(
   config: RelayConfig,
   log: RelayLogger,
@@ -333,11 +424,13 @@ function switchProject(
     );
     if (registered) {
       log.warn(`[switch_project] worktree dir exists but state is missing, reusing registered dir: ${worktreeDir} (branch=${registered.branch ?? branch})`);
+      const env = runOnSwitch(config, log, worktreeDir);
       const state: SessionState = {
         project_id: project.id,
         project_name: project.name,
         workdir: worktreeDir,
         worktree_branch: registered.branch ?? branch,
+        env,
       };
       const file = writeSessionState(config, sessionID, state);
       log.info(`[switch_project] state written: ${file}`);
@@ -356,11 +449,13 @@ function switchProject(
   }
   log.info(`[switch_project] worktree created: ${worktreeDir} (branch=${branch})`);
 
+  const env = runOnSwitch(config, log, worktreeDir);
   const state: SessionState = {
     project_id: project.id,
     project_name: project.name,
     workdir: worktreeDir,
     worktree_branch: branch,
+    env,
   };
   const file = writeSessionState(config, sessionID, state);
   log.info(`[switch_project] state written: ${file}`);
@@ -459,6 +554,44 @@ function successResult(state: SessionState): ToolResult {
       2,
     ),
   };
+}
+
+const MAX_AGENTS_MD_CHARS = 12000;
+
+/** Find the instruction file at the worktree root, mirroring opencode's precedence (instruction.ts:60-68). */
+function findAgentsMd(workdir: string): string | null {
+  for (const name of ["AGENTS.md", "CLAUDE.md", "CONTEXT.md"]) {
+    const file = path.join(workdir, name);
+    if (fs.existsSync(file)) return file;
+  }
+  return null;
+}
+
+/** Read the worktree-root instruction file, capped to keep the injection bounded. */
+function readProjectInstructions(workdir: string): string | null {
+  const file = findAgentsMd(workdir);
+  if (!file) return null;
+  try {
+    const raw = fs.readFileSync(file, "utf8");
+    return raw.length > MAX_AGENTS_MD_CHARS ? `${raw.slice(0, MAX_AGENTS_MD_CHARS)}\n...[truncated]` : raw;
+  } catch {
+    return null;
+  }
+}
+
+/** List project skills shipped in the worktree (.opencode/skills or .opencode/skill, mirroring OPENCODE_SKILL_PATTERN). */
+function listProjectSkills(workdir: string): string[] {
+  const skills: string[] = [];
+  for (const dirName of ["skills", "skill"]) {
+    const root = path.join(workdir, ".opencode", dirName);
+    if (!fs.existsSync(root)) continue;
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      if (entry.isDirectory() && fs.existsSync(path.join(root, entry.name, "SKILL.md"))) {
+        skills.push(entry.name);
+      }
+    }
+  }
+  return skills;
 }
 
 function renderTemplate(template: string, state: SessionState): string {

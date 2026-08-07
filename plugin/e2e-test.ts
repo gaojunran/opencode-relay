@@ -20,6 +20,16 @@ execFileSync("git", ["init", "-q"], { cwd: repoPath })
 execFileSync("git", ["config", "user.email", "t@t"], { cwd: repoPath })
 execFileSync("git", ["config", "user.name", "t"], { cwd: repoPath })
 fs.writeFileSync(path.join(repoPath, "README.md"), "hello projA\n")
+// Commit project-level instructions and a skill so the worktree checkout carries them
+fs.writeFileSync(
+  path.join(repoPath, "AGENTS.md"),
+  "# projA AGENTS\n\nThis project prefers TypeScript. Run tests with `bun test`.\n",
+)
+fs.mkdirSync(path.join(repoPath, ".opencode", "skills", "proj-build"), { recursive: true })
+fs.writeFileSync(
+  path.join(repoPath, ".opencode", "skills", "proj-build", "SKILL.md"),
+  "---\nname: proj-build\ndescription: Build projA with bun build\n---\n\nRun `bun run build`.\n",
+)
 execFileSync("git", ["add", "."], { cwd: repoPath })
 execFileSync("git", ["commit", "-qm", "init"], { cwd: repoPath })
 
@@ -38,6 +48,7 @@ repo_path = "${repoPath}"
 [worktree]
 branch_prefix = "opencode/"
 end_of_session = "keep"
+on_switch = "echo PROJ_ENV_VAR=from-on-switch"
 [inject]
 enabled = true
 template = "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}."
@@ -342,6 +353,30 @@ await hooks2["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz"
 const guideStateful = sysOut5.system.join("\n")
 if (!guideStateful.includes("always use switch_project") || !guideStateful.includes("register_project")) throw new Error("stateful injection missing project guide!")
 console.log("stateful injection contains project guide ✓")
+
+// 9d. on_switch env capture + shell.env injection + worktree AGENTS.md/skill injection
+console.log("\n== on_switch env + shell.env + AGENTS.md/skill injection ==")
+// The test worktree was created after AGENTS.md/.opencode/skills were committed, so the
+// worktree checkout carries them. After 8c the session state was rewritten by switchProject,
+// which runs on_switch and stores its env dump in state.env.
+const stateAfterSwitch = JSON.parse(fs.readFileSync(path.join(stateDir, "sesabc123xyz.json"), "utf8"))
+if (!stateAfterSwitch.env || stateAfterSwitch.env.PROJ_ENV_VAR !== "from-on-switch") {
+  throw new Error(`on_switch env not captured: ${JSON.stringify(stateAfterSwitch.env)}`)
+}
+console.log("on_switch env captured in session state ✓")
+// shell.env hook injects the captured env on every bash spawn
+const envOut: { env: Record<string, string> } = { env: {} }
+await hooks2["shell.env"]!({ sessionID: "ses_abc123xyz", cwd: workdir, callID: "c31" }, envOut)
+if (envOut.env.PROJ_ENV_VAR !== "from-on-switch") throw new Error("shell.env did not inject on_switch env!")
+console.log("shell.env injects project env ✓")
+// system.transform injects worktree AGENTS.md content
+const sysOut6: { system: string[] } = { system: [] }
+await hooks2["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz", model: {} as any }, sysOut6)
+const injectedText = sysOut6.system.join("\n")
+if (!injectedText.includes("projA AGENTS")) throw new Error("worktree AGENTS.md not injected into system prompt!")
+console.log("worktree AGENTS.md injected into system prompt ✓")
+if (!injectedText.includes("proj-build")) throw new Error("project skill not injected into system prompt!")
+console.log("project skill injected into system prompt ✓")
 
 // 10. Debug logging hooks are registered and callable without throwing
 // (experimental.text.complete / tool.execute.after / chat.message)

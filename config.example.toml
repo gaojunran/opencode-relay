@@ -61,6 +61,13 @@ end_of_session = "keep"
 remote = "origin"
 # Inactivity reclaim threshold (days): a worktree whose last activity exceeds this is considered reclaimable (section 4.8)
 stale_days = 7
+# Command run once when a project is switched, with the worktree as cwd. Its stdout is parsed as
+# an env dump (KEY=VALUE / export KEY=VALUE lines, e.g. `mise env` or `direnv export bash`) and
+# injected into every bash invocation of the session via the shell.env hook. {{dir}} is replaced
+# with the worktree path. Failures are logged and never block the switch.
+# on_switch = "mise env"
+# on_switch = "direnv export bash"
+on_switch = ""
 
 # ---------- Context injection ----------
 
@@ -71,6 +78,13 @@ enabled = true
 template = "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}. Use the workdir parameter for bash, absolute paths for file operations, and never modify the main copy."
 # When the session has not switched to a project yet, inject the available project list into the system prompt to guide the agent to call switch_project
 list_projects = true
+# After switching, inject the worktree-root instruction file (AGENTS.md / CLAUDE.md / CONTEXT.md,
+# opencode's precedence) into the system prompt. Worktrees are not scanned by opencode's own
+# findUp-based instruction loading, so this restores project-level instructions.
+agents_md = true
+# After switching, list project skills shipped in the worktree (.opencode/skills or .opencode/skill)
+# in the system prompt so the agent can load them with the skill tool.
+skills = true
 # A fixed guide is always injected: use switch_project for projects, and register_project for repositories not yet in the list
 
 # ---------- Anti-bypass ----------

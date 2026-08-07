@@ -7,6 +7,7 @@ export interface SessionState {
   project_name: string;
   workdir: string;
   worktree_branch: string;
+  env: Record<string, string>;
 }
 
 /** Strip non-alphanumeric characters from a sessionID */
@@ -35,6 +36,11 @@ function isSessionState(v: unknown): v is SessionState {
   );
 }
 
+/** Normalize a parsed state (old states predate the env field) */
+export function normalizeState(s: SessionState): SessionState {
+  return { ...s, env: typeof s.env === "object" && s.env !== null ? s.env : {} };
+}
+
 /** Read session state; returns null when the file is missing or malformed */
 export function readSessionState(config: RelayConfig, sessionID: string): SessionState | null {
   const file = stateFilePath(config, sessionID);
@@ -46,7 +52,7 @@ export function readSessionState(config: RelayConfig, sessionID: string): Sessio
   }
   try {
     const parsed: unknown = JSON.parse(text);
-    return isSessionState(parsed) ? parsed : null;
+    return isSessionState(parsed) ? normalizeState(parsed) : null;
   } catch {
     return null;
   }

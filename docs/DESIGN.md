@@ -199,6 +199,8 @@ tool.leave_project()
 
 1. **未切项目（无状态）→ 注入项目清单引导**：把 `list_project` 的结果（项目 id/name/description 列表）注入 system prompt，并附"请调用 switch_project 切换"的引导，让 Agent 一开始就知道有哪些项目可选。由 `[inject].list_projects`（默认 `true`）控制；项目注册表为空时跳过。
 2. **已切项目（有状态）→ 注入当前项目上下文**：注入模板渲染结果（`{project_id}`/`{project_name}`/`{workdir}`/`{branch}`）。
+3. **已切项目 → 注入 worktree 根指令文件**（`[inject].agents_md`，默认 `true`）：读取 worktree 根的 `AGENTS.md`（优先级 AGENTS.md → CLAUDE.md → CONTEXT.md，与 opencode `instruction.ts:60-68` 一致）注入 system prompt（上限 12000 字符）。背景（exp-4 源码实证）：opencode 的指令加载只从会话目录向上 `findUp`（`instruction.ts:126`），worktree 是子目录永远不会被扫到；read 联动只在模型读文件时按需附加。插件在 worktree 根直接读并稳定注入，恢复项目级指令。
+4. **已切项目 → 注入项目 skill 清单**（`[inject].skills`，默认 `true`）：扫描 worktree 的 `.opencode/skills` / `.opencode/skill` 下的 `SKILL.md`（与 `OPENCODE_SKILL_PATTERN` 一致），把 skill 名列表注入 system prompt，引导模型用 skill 工具加载。opencode 的 skill 发现同样只向上扫 + 固定 `~/.opencode`（`skill/index.ts:205-208`），worktree 内技能默认不可见。
 
 ```ts
 hook: { experimental: { chat: { system: { transform: async ({sessionID}, output) => {
@@ -223,6 +225,23 @@ bash 工具请用 workdir="{workdir}" 参数，文件操作请用绝对路径。
 ```
 
 触发点 `session/llm/request.ts:69-73`，每轮必触发，状态变化下一轮立即生效。
+
+### 4.4b shell.env hook（项目环境注入）与 on_switch 命令
+
+**背景（exp-4 源码实证）**：bash 工具每次调用是独立进程（`shell -c`，非 login 不读 rc，`tool/shell.ts:293-310`），继承 opencode 进程 env（`shellEnv`: `{...process.env, ...hook注入}`，`:416-426`）。opencode 无任何 direnv/mise 集成。因此"进入目录才激活的工具链环境"（mise fnox、.envrc 等）在 worktree 里默认不生效。
+
+**机制**：
+1. `[worktree].on_switch`（默认空）配置一条命令；`switch_project` 创建/复用 worktree 后在 worktree 内执行一次，`{{dir}}` 替换为 worktree 路径，stdout 按 `KEY=VALUE` / `export KEY=VALUE` 行解析（`parseEnvDump`，兼容 `mise env` / `direnv export bash` 输出），存入会话状态 `state.env`。失败仅记日志，绝不阻塞 switch。
+2. `shell.env` hook（opencode 现存 API，`plugin/src/index.ts:270-273`）每次 bash spawn 前触发：按 sessionID 读 `state.env` 合并进 `output.env`。效果 = 每次 bash 调用都带项目环境（弥补 bash 独立进程无跨调用状态的缺口）。
+
+```ts
+hook: { shell: { env: async ({sessionID}, output) => {
+  const state = readSessionState(config, sessionID);
+  if (state?.env) Object.assign(output.env, state.env);
+} } }
+```
+
+典型配置：`on_switch = "mise env"` 或 `on_switch = "direnv export bash"`（stdout 直接是 export 行，`parseEnvDump` 兼容）。
 
 ### 4.5 tool.execute.before hook（防绕过硬拦截）
 

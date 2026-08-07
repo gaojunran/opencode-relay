@@ -24,8 +24,8 @@ export interface RelayConfig {
   general: { enabled: boolean; home: string; log_level: LogLevel };
   paths: { workspace_root: string; worktree_root: string; state_dir: string };
   projects: { items: ProjectItem[]; scan_dir?: string };
-  worktree: { branch_prefix: string; end_of_session: EndOfSessionStrategy; remote: string; stale_days: number };
-  inject: { enabled: boolean; template: string; list_projects: boolean };
+  worktree: { branch_prefix: string; end_of_session: EndOfSessionStrategy; remote: string; stale_days: number; on_switch: string };
+  inject: { enabled: boolean; template: string; list_projects: boolean; agents_md: boolean; skills: boolean };
   guard: { enabled: boolean; reject_on_violation: boolean; deny_paths: string[]; allow_paths: string[]; allow_dirs: string[] };
   permissions: { enabled: boolean; rules: PermissionRule[] };
   list: { include_description: boolean };
@@ -299,11 +299,14 @@ function buildConfig(raw: TomlTable): RelayConfig {
         : "keep") as EndOfSessionStrategy,
       remote: asString(worktree.remote, "origin"),
       stale_days: typeof worktree.stale_days === "number" ? worktree.stale_days : 7,
+      on_switch: typeof worktree.on_switch === "string" ? worktree.on_switch : "",
     },
     inject: {
       enabled: asBoolean(inject.enabled, true),
       template: asString(inject.template, DEFAULT_TEMPLATE),
       list_projects: asBoolean(inject.list_projects, true),
+      agents_md: asBoolean(inject.agents_md, true),
+      skills: asBoolean(inject.skills, true),
     },
     guard: {
       enabled: asBoolean(guard.enabled, true),
