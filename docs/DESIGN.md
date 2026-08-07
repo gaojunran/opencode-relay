@@ -135,7 +135,7 @@ opencode run（in-process server，cc-connect spawn）
 
 ```
 ~/.config/opencode-relay/config.toml       全部可配置（路径/注册表/策略/防绕过）
-  [general]    enabled / home（默认 $HOME）/ log_level
+  [general]    enabled / home（默认 $HOME）/ log_level / log_file（可选日志目录，按天切分 `<dir>/relay-<日期>.log`，tee 到 console）
   [paths]      workspace_root / worktree_root / state_dir
   [projects]   items[] 或 scan_dir 自动扫描
   [worktree]   branch_prefix / end_of_session / remote

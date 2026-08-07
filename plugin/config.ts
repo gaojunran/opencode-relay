@@ -21,7 +21,7 @@ export interface PermissionRule {
 }
 
 export interface RelayConfig {
-  general: { enabled: boolean; home: string; log_level: LogLevel };
+  general: { enabled: boolean; home: string; log_level: LogLevel; log_file: string };
   paths: { workspace_root: string; worktree_root: string; state_dir: string };
   projects: { items: ProjectItem[]; scan_dir?: string };
   worktree: { branch_prefix: string; end_of_session: EndOfSessionStrategy; remote: string; stale_days: number; on_switch: string };
@@ -42,10 +42,34 @@ export interface RelayLogger {
 
 const LOG_THRESHOLD: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
-export function createLogger(level: string): RelayLogger {
+/** Daily-rotated log file writer. Append-only, never throws (a failed log write must not
+ *  break the plugin). Returns null when file logging is disabled (empty dir). */
+function makeLogWriter(logDir: string): ((line: string) => void) | null {
+  if (!logDir) return null;
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+  } catch {
+    return null;
+  }
+  return (line: string) => {
+    const day = new Date().toISOString().slice(0, 10);
+    try {
+      fs.appendFileSync(path.join(logDir, `relay-${day}.log`), `${line}\n`, "utf8");
+    } catch {
+      // drop the write; logging must never affect plugin behavior
+    }
+  };
+}
+
+export function createLogger(level: string, logDir = ""): RelayLogger {
   const threshold = LOG_THRESHOLD[level as LogLevel] ?? 1;
+  const writeFile = makeLogWriter(logDir);
   const emit = (min: number, method: "log" | "warn" | "error", msg: string) => {
-    if (threshold <= min) console[method](`[opencode-relay] ${msg}`);
+    if (threshold <= min) {
+      const line = `[opencode-relay] ${msg}`;
+      console[method](line);
+      writeFile?.(line);
+    }
   };
   return {
     debug: (m) => emit(0, "log", m),
@@ -282,6 +306,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
       enabled: asBoolean(general.enabled, true),
       home: expandHome(asString(general.home, home)),
       log_level: asString(general.log_level, "info") as LogLevel,
+      log_file: expandHome(asString(general.log_file, "")),
     },
     paths: {
       workspace_root: workspaceRoot,

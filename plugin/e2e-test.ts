@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { resetConfig } from "./config.js"
+import { createLogger } from "./config.js"
 
 const R = `/tmp/relay-e2e-${Date.now()}`
 const home = path.join(R, "home")
@@ -385,6 +386,20 @@ console.log("experimental.text.complete callable ✓")
 await hooks["tool.execute.after"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c30", args: { command: "ls" } }, { title: "ls", output: "README.md\nsrc", metadata: {} })
 console.log("tool.execute.after callable ✓")
 await hooks["chat.message"]!({ sessionID: "ses_abc123xyz", messageID: "m2" }, { message: {} as any, parts: [{ id: "p2", sessionID: "ses_abc123xyz", messageID: "m2", type: "text", text: "explain the codebase" }] })
+
+// 9d. log_file writes to a daily-rotated file and keeps console tee
+{
+  const logDir = path.join(R, "logs")
+  const logger = createLogger("debug", logDir)
+  logger.info("log-file test line")
+  const files = fs.readdirSync(logDir)
+  const day = new Date().toISOString().slice(0, 10)
+  const logFile = path.join(logDir, `relay-${day}.log`)
+  const content = fs.readFileSync(logFile, "utf8")
+  if (!files.some((f) => f.startsWith("relay-")) || !content.includes("log-file test line"))
+    throw new Error("log_file did not write the expected entry")
+  console.log("log_file daily file + console tee ✓")
+}
 console.log("chat.message callable ✓")
 
 console.log("\n✅ P1 all verifications passed")

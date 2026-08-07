@@ -11,6 +11,10 @@ enabled = true
 # home = "/home/nebula"
 # Log level: debug | info | warn | error
 log_level = "info"
+# Optional directory for persistent logs. When set, every log line is appended to
+# <dir>/relay-<YYYY-MM-DD>.log (daily rotation) in addition to the console. A failed
+# log write never breaks the plugin. Leave empty to log to console only.
+log_file = ""
 
 # ---------- Paths ----------
 

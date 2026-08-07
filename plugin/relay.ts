@@ -34,7 +34,7 @@ export default {
   id: "opencode-relay",
   server: async (input: PluginInput) => {
     const config = loadConfig();
-    const log = createLogger(config.general.log_level);
+    const log = createLogger(config.general.log_level, config.general.log_file);
     if (!config.general.enabled) {
       log.info("Plugin disabled (general.enabled = false)");
       return {};
