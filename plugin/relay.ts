@@ -12,6 +12,7 @@ import {
 } from "./config.js";
 import {
   readSessionState,
+  removeSessionState,
   sanitizeSessionID,
   shortSessionID,
   writeSessionState,
@@ -98,6 +99,40 @@ function buildHooks(opts: {
         execute: async (args, context): Promise<ToolResult> => {
           activeSessionID = context.sessionID;
           return cleanupStaleWorktrees(config, log, args.dry_run === true);
+        },
+      }),
+
+      leave_project: tool({
+        description:
+          "退出当前项目，回到未切换项目的自由状态（guard 不再拦截、system prompt 恢复项目清单引导）。worktree 目录与分支保留，改动不丢；同会话再次 switch_project 到该项目会复用原 worktree。",
+        args: {},
+        execute: async (_args, context): Promise<ToolResult> => {
+          activeSessionID = context.sessionID;
+          const state = readSessionState(config, context.sessionID);
+          if (!state) {
+            log.info(`[leave_project] 会话 ${context.sessionID} 当前未切换项目，无需退出`);
+            return {
+              title: "当前不在项目中",
+              output: "当前会话未切换任何项目，无需 leave_project。",
+            };
+          }
+          const removed = removeSessionState(config, context.sessionID);
+          log.info(
+            `[leave_project] 会话 ${context.sessionID} 退出项目 ${state.project_id}，state 删除: ${removed}（worktree 保留: ${state.workdir}, branch=${state.worktree_branch}）`,
+          );
+          return {
+            title: "已退出项目",
+            output: JSON.stringify(
+              {
+                left_project: state.project_id,
+                workdir_preserved: state.workdir,
+                branch_preserved: state.worktree_branch,
+                note: "worktree 与分支保留，改动未丢失；如需回收请用 cleanup_worktrees",
+              },
+              null,
+              2,
+            ),
+          };
         },
       }),
     },

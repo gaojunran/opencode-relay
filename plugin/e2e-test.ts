@@ -183,6 +183,28 @@ if (!sysOut2.system[0].includes("projA")) throw new Error("未切项目会话未
 if (!sysOut2.system[0].includes("switch_project")) throw new Error("清单注入缺少 switch 引导!")
 console.log("未切项目会话注入项目清单 + switch 引导 ✓")
 
+// 8. leave_project：切回未切状态，guard 恢复放行、system.transform 恢复清单引导、worktree 保留可复用
+console.log("\n== leave_project ==")
+const lp = await hooks2.tool!.leave_project!.execute({}, { sessionID: "ses_abc123xyz", directory: home } as any)
+const lpOut = typeof lp === "string" ? JSON.parse(lp) : JSON.parse(lp.output)
+console.log(JSON.stringify(lpOut, null, 2))
+if (lpOut.left_project !== "projA") throw new Error("leave_project 返回项目不正确")
+if (!fs.existsSync(workdir)) throw new Error("leave_project 不应删除 worktree!")
+console.log("leave_project 返回 + worktree 保留 ✓")
+// 8a. 退出后 guard 放行（无状态会话不拦截）
+await hooks2["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c14" }, { args: { command: "ls", workdir: "/etc" } })
+console.log("leave 后 bash /etc → 放行（恢复无状态）✓")
+// 8b. 退出后 system.transform 恢复清单引导
+const sysOut3: { system: string[] } = { system: [] }
+await hooks2["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz", model: {} as any }, sysOut3)
+if (!sysOut3.system[0].includes("switch_project")) throw new Error("leave 后未恢复清单引导!")
+console.log("leave 后 system.transform 恢复清单引导 ✓")
+// 8c. 同会话再 switch 复用原 worktree（state 缺失但有注册目录）
+const sw3 = await hooks2.tool!.switch_project!.execute({ project_id: "projA" }, { sessionID: "ses_abc123xyz", directory: home } as any)
+const sw3Obj = typeof sw3 === "string" ? JSON.parse(sw3) : JSON.parse(sw3.output)
+if (sw3Obj.workdir !== workdir) throw new Error("leave 后再 switch 未复用原 worktree!")
+console.log("leave 后再 switch → 复用原 worktree ✓")
+
 console.log("\n✅ P1 全部验证通过")
 // 清理
 fs.rmSync(R, { recursive: true, force: true })

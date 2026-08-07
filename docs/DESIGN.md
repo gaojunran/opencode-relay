@@ -110,6 +110,8 @@ opencode run（in-process server，cc-connect spawn）
    └─ 本项目插件（最终成品）
         ├─ tool: list_project()                            只返回 {id, name}
         ├─ tool: switch_project({project_id})              无条件建 worktree，返回工作目录
+        ├─ tool: leave_project()                           删除会话状态，恢复无状态（worktree 保留）
+        ├─ tool: cleanup_worktrees({dry_run})              回收 stale 不活跃 worktree
         ├─ hook: system.transform                          每轮注入"当前项目"
         ├─ hook: tool.execute.before                       防绕过硬拦截
         ├─ hook: dispose                                   worktree 生命周期收尾
@@ -182,6 +184,14 @@ tool.switch_project({ project_id: string })
 - 分支 `<branch_prefix><sessionID 短id>` 承载本会话全部改动。
 - 会话结束（dispose）时：按 `[worktree].end_of_session` 配置执行 `keep`（默认，保留分支 + worktree 供手动 review/merge）、`push`（自动 `git push <remote> <branch>` 并提示开 PR）或 `cleanup`（删除 worktree 目录，分支保留）。
 - 主副本 `<workspace_root>/<project>` 保持干净，是长期可信基线。
+
+### 4.3b leave_project 工具（退出项目，恢复无状态）
+
+```
+tool.leave_project()
+```
+
+与 `switch_project` 对称的逆操作，让 Agent 自主回到"未切换项目"的自由状态（guard 不拦截、system.transform 恢复项目清单引导）。**worktree 目录与分支保留，改动不丢失**；同会话再次 `switch_project` 到该项目会复用原 worktree（目录存在但状态缺失时的复用逻辑见 4.3 第 1 步）。需要物理回收时由 `cleanup_worktrees` 按 stale_days 处理。
 
 ### 4.4 system.transform hook（每轮注入）
 

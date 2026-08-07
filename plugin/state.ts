@@ -63,3 +63,14 @@ export function writeSessionState(
   fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   return file;
 }
+
+/** 删除会话状态，返回是否实际删除 */
+export function removeSessionState(config: RelayConfig, sessionID: string): boolean {
+  const file = stateFilePath(config, sessionID);
+  try {
+    fs.unlinkSync(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
