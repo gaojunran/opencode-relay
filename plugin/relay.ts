@@ -66,8 +66,7 @@ function buildHooks(opts: {
   return {
     tool: {
       list_project: tool({
-        description:
-          "List the currently available projects (returns id and name, never exposes repo paths), used before switch_project.",
+        description: "List the available projects. Call this before switching projects.",
         args: {},
         execute: async (): Promise<ToolResult> => {
           const projects = getProjectRegistry(config);
@@ -86,8 +85,7 @@ function buildHooks(opts: {
       }),
 
       switch_project: tool({
-        description:
-          "Switch the current session to the given project: unconditionally create (or reuse) an isolated git worktree as the working directory, and return the workdir for the bash workdir parameter.",
+        description: "Switch the current session to the given project and return its working directory.",
         args: {
           project_id: tool.schema.string().describe("Project ID (from list_project)"),
         },
@@ -99,7 +97,7 @@ function buildHooks(opts: {
 
       register_project: tool({
         description:
-          "Register a new project from any git repository path: validates it is a git repo, ensures its remotes do not duplicate an already-registered project, moves the directory into the workspace root, and registers it. Use this when the existing projects do not include the one you want to enter.",
+          "Register a new project from a git repository at the given path, then switch to it. Use this when the existing projects do not include the one you want to enter.",
         args: {
           dir: tool.schema.string().describe("Path to the git repository to register"),
           id: tool.schema.string().optional().describe("Project ID (defaults to the directory basename)"),
@@ -112,8 +110,7 @@ function buildHooks(opts: {
       }),
 
       cleanup_worktrees: tool({
-        description:
-          "Reclaim worktrees inactive for more than stale_days (git worktree remove --force + delete matching state file). Session history stays in the database and is unaffected.",
+        description: "Clean up stale project workspaces that have been inactive for more than stale_days.",
         args: {
           dry_run: tool.schema.boolean().optional().describe("When true, only list items to reclaim, do not delete"),
         },
@@ -124,8 +121,7 @@ function buildHooks(opts: {
       }),
 
       leave_project: tool({
-        description:
-          "Leave the current project and return to the free state where no project is switched (guard no longer intercepts, system prompt shows the project list again). The worktree directory and branch are kept, so changes are not lost; switching to the same project again in this session reuses the original worktree.",
+        description: "Leave the current project and return to the free state. Your changes are preserved.",
         args: {},
         execute: async (_args, context): Promise<ToolResult> => {
           activeSessionID = context.sessionID;
