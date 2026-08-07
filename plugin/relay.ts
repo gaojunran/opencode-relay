@@ -28,16 +28,16 @@ export default {
     const config = loadConfig();
     const log = createLogger(config.general.log_level);
     if (!config.general.enabled) {
-      log.info("插件已禁用（general.enabled = false）");
+      log.info("Plugin disabled (general.enabled = false)");
       return {};
     }
     const sessionDir = path.resolve(input.directory);
     const home = path.resolve(config.general.home);
     if (!isInside(sessionDir, home)) {
-      log.info(`[opt-out] 会话目录不在 home 内，跳过插件加载: 会话目录=${sessionDir}, home=${home}`);
+      log.info(`[opt-out] Session directory outside home, skipping plugin load: sessionDir=${sessionDir}, home=${home}`);
       return {};
     }
-    log.info(`插件启动，会话目录: ${sessionDir}（home: ${home}）`);
+    log.info(`Plugin started, session directory: ${sessionDir} (home: ${home})`);
     log.debug(
       `[config] log_level=${config.general.log_level} enabled=${config.general.enabled} home=${config.general.home} workspace_root=${config.paths.workspace_root} worktree_root=${config.paths.worktree_root} state_dir=${config.paths.state_dir} projects=${getProjectRegistry(config).length}`,
     );
@@ -52,15 +52,15 @@ function buildHooks(opts: {
 }): Hooks {
   const { config, log, instanceDir } = opts;
 
-  // dispose 无参数（opencode plugin/index.ts:266 直接调用 hook.dispose?.()），
-  // 用模块级变量记录最近一次工具调用所属会话，dispose 时据此定位 state
+  // dispose receives no arguments (opencode plugin/index.ts:266 calls hook.dispose?.() directly),
+  // so a module-level variable records the session of the most recent tool call for dispose.
   let activeSessionID: string | undefined;
 
   return {
     tool: {
       list_project: tool({
         description:
-          "列出当前可用的项目（返回 id 与 name，不暴露仓库路径），用于 switch_project 切换项目。",
+          "List the currently available projects (returns id and name, never exposes repo paths), used before switch_project.",
         args: {},
         execute: async (): Promise<ToolResult> => {
           const projects = getProjectRegistry(config);
@@ -73,16 +73,16 @@ function buildHooks(opts: {
             if (withDescription && p.description) entry.description = p.description;
             return entry;
           });
-          log.debug(`[list_project] 返回 ${result.length} 个项目`);
+          log.debug(`[list_project] returning ${result.length} projects`);
           return JSON.stringify(result, null, 2);
         },
       }),
 
       switch_project: tool({
         description:
-          "将当前会话切换到指定项目：无条件创建（或复用）独立 git worktree 作为工作目录，返回 workdir 供 bash 的 workdir 参数使用。",
+          "Switch the current session to the given project: unconditionally create (or reuse) an isolated git worktree as the working directory, and return the workdir for the bash workdir parameter.",
         args: {
-          project_id: tool.schema.string().describe("项目 ID（来自 list_project）"),
+          project_id: tool.schema.string().describe("Project ID (from list_project)"),
         },
         execute: async (args, context): Promise<ToolResult> => {
           activeSessionID = context.sessionID;
@@ -92,9 +92,9 @@ function buildHooks(opts: {
 
       cleanup_worktrees: tool({
         description:
-          "回收超过 stale_days 天不活跃的 worktree（git worktree remove --force + 同步删除状态文件）。会话历史保留在数据库，不受影响。",
+          "Reclaim worktrees inactive for more than stale_days (git worktree remove --force + delete matching state file). Session history stays in the database and is unaffected.",
         args: {
-          dry_run: tool.schema.boolean().optional().describe("为 true 时只列出待回收项，不实际删除"),
+          dry_run: tool.schema.boolean().optional().describe("When true, only list items to reclaim, do not delete"),
         },
         execute: async (args, context): Promise<ToolResult> => {
           activeSessionID = context.sessionID;
@@ -104,30 +104,30 @@ function buildHooks(opts: {
 
       leave_project: tool({
         description:
-          "退出当前项目，回到未切换项目的自由状态（guard 不再拦截、system prompt 恢复项目清单引导）。worktree 目录与分支保留，改动不丢；同会话再次 switch_project 到该项目会复用原 worktree。",
+          "Leave the current project and return to the free state where no project is switched (guard no longer intercepts, system prompt shows the project list again). The worktree directory and branch are kept, so changes are not lost; switching to the same project again in this session reuses the original worktree.",
         args: {},
         execute: async (_args, context): Promise<ToolResult> => {
           activeSessionID = context.sessionID;
           const state = readSessionState(config, context.sessionID);
           if (!state) {
-            log.info(`[leave_project] 会话 ${context.sessionID} 当前未切换项目，无需退出`);
+            log.info(`[leave_project] session ${context.sessionID} has no project switched, nothing to leave`);
             return {
-              title: "当前不在项目中",
-              output: "当前会话未切换任何项目，无需 leave_project。",
+              title: "Not in a project",
+              output: "This session has no project switched, no leave_project needed.",
             };
           }
           const removed = removeSessionState(config, context.sessionID);
           log.info(
-            `[leave_project] 会话 ${context.sessionID} 退出项目 ${state.project_id}，state 删除: ${removed}（worktree 保留: ${state.workdir}, branch=${state.worktree_branch}）`,
+            `[leave_project] session ${context.sessionID} left project ${state.project_id}, state removed: ${removed} (worktree kept: ${state.workdir}, branch=${state.worktree_branch})`,
           );
           return {
-            title: "已退出项目",
+            title: "Left project",
             output: JSON.stringify(
               {
                 left_project: state.project_id,
                 workdir_preserved: state.workdir,
                 branch_preserved: state.worktree_branch,
-                note: "worktree 与分支保留，改动未丢失；如需回收请用 cleanup_worktrees",
+                note: "worktree and branch preserved, no changes lost; use cleanup_worktrees to reclaim",
               },
               null,
               2,
@@ -146,23 +146,23 @@ function buildHooks(opts: {
           const projects = getProjectRegistry(config);
           if (projects.length > 0) {
             const lines = projects.map((p) => {
-              const desc = p.description ? `（${p.description}）` : "";
+              const desc = p.description ? ` (${p.description})` : "";
               return `- ${p.id}: ${p.name}${desc}`;
             });
             output.system.push(
-              `可用项目（请调用 switch_project({project_id}) 切换到目标项目，id 见列表）:\n${lines.join("\n")}`,
+              `Available projects (call switch_project({project_id}) to switch to the target project, see ids below):\n${lines.join("\n")}`,
             );
-            log.debug(`[system.transform] 会话 ${sessionID} 无状态，注入项目清单（${projects.length} 个）`);
+            log.debug(`[system.transform] session ${sessionID} has no state, injected project list (${projects.length} projects)`);
           }
         } else {
-          log.debug(`[system.transform] 会话 ${sessionID} 无状态，跳过注入`);
+          log.debug(`[system.transform] session ${sessionID} has no state, skipped injection`);
         }
         return;
       }
       const text = renderTemplate(config.inject.template, state);
       output.system.push(text);
       log.debug(
-        `[system.transform] 会话 ${sessionID} 注入项目 ${state.project_id}，新增文本前 60 字符: ${text.slice(0, 60)}`,
+        `[system.transform] session ${sessionID} injected project ${state.project_id}, first 60 chars: ${text.slice(0, 60)}`,
       );
     },
 
@@ -171,23 +171,23 @@ function buildHooks(opts: {
       if (!toolName || !sessionID) return;
       const state = readSessionState(config, sessionID);
       if (!state) {
-        log.debug(`[guard] 会话 ${sessionID} 无状态，跳过拦截`);
+        log.debug(`[guard] session ${sessionID} has no state, skipping interception`);
         return;
       }
-      log.debug(`[guard] 工具 ${toolName}（会话 ${sessionID}）`);
+      log.debug(`[guard] tool ${toolName} (session ${sessionID})`);
       guardToolCall({ config, log, instanceDir, toolName, args: output.args ?? {}, state });
     },
 
     dispose: async () => {
-      log.debug(`[dispose] activeSessionID=${activeSessionID ?? "（未设置）"}`);
+      log.debug(`[dispose] activeSessionID=${activeSessionID ?? "(not set)"}`);
       if (!activeSessionID) {
-        log.info("[dispose] 无活动会话状态，跳过 end_of_session 处理");
+        log.info("[dispose] no active session state, skipping end_of_session handling");
         return;
       }
       const state = readSessionState(config, activeSessionID);
-      log.debug(`[dispose] 会话 ${activeSessionID} state=${state ? JSON.stringify(state) : "null"}`);
+      log.debug(`[dispose] session ${activeSessionID} state=${state ? JSON.stringify(state) : "null"}`);
       if (!state) {
-        log.info(`[dispose] 会话 ${activeSessionID} 无项目状态，跳过`);
+        log.info(`[dispose] session ${activeSessionID} has no project state, skipping`);
         return;
       }
       handleEndOfSession(config, log, activeSessionID, state);
@@ -195,7 +195,7 @@ function buildHooks(opts: {
   };
 }
 
-/** 会话结束（dispose）时按 end_of_session 策略处理 worktree（4.9 节设计） */
+/** On session end (dispose), handle the worktree per the end_of_session strategy (section 4.9 design) */
 function handleEndOfSession(
   config: RelayConfig,
   log: RelayLogger,
@@ -203,24 +203,24 @@ function handleEndOfSession(
   state: SessionState,
 ): void {
   const strategy = config.worktree.end_of_session;
-  log.info(`[dispose] 会话 ${sessionID} end_of_session=${strategy} (project=${state.project_id}, branch=${state.worktree_branch})`);
-  log.debug(`[dispose] 进入分支: end_of_session=${strategy}`);
+  log.info(`[dispose] session ${sessionID} end_of_session=${strategy} (project=${state.project_id}, branch=${state.worktree_branch})`);
+  log.debug(`[dispose] entering branch: end_of_session=${strategy}`);
 
   if (strategy === "keep") return;
 
   if (strategy === "cleanup") {
     const project = findProject(config, state.project_id);
     if (!project) {
-      log.warn(`[dispose] 项目 ${state.project_id} 不在注册表，跳过 cleanup`);
+      log.warn(`[dispose] project ${state.project_id} not in registry, skipping cleanup`);
       return;
     }
-    log.debug(`[dispose] cleanup 分支: repo_path=${project.repo_path}, workdir=${state.workdir}`);
+    log.debug(`[dispose] cleanup branch: repo_path=${project.repo_path}, workdir=${state.workdir}`);
     try {
       removeWorktree(project.repo_path, state.workdir, log);
-      log.info(`[dispose] 已清理 worktree: ${state.workdir}`);
+      log.info(`[dispose] cleaned up worktree: ${state.workdir}`);
     } catch (err) {
-      log.error(`[dispose] worktree 清理失败: ${String(err)}`);
-      log.debug(`[dispose] worktree 清理失败详情: ${String(err)}`);
+      log.error(`[dispose] worktree cleanup failed: ${String(err)}`);
+      log.debug(`[dispose] worktree cleanup failure detail: ${String(err)}`);
     }
     return;
   }
@@ -228,19 +228,19 @@ function handleEndOfSession(
   if (strategy === "push") {
     const project = findProject(config, state.project_id);
     if (!project) {
-      log.warn(`[dispose] 项目 ${state.project_id} 不在注册表，跳过 push`);
+      log.warn(`[dispose] project ${state.project_id} not in registry, skipping push`);
       return;
     }
     const remote = config.worktree.remote;
     const branch = state.worktree_branch;
-    log.debug(`[dispose] push 分支: remote=${remote}, branch=${branch}`);
+    log.debug(`[dispose] push branch: remote=${remote}, branch=${branch}`);
     try {
       execGit(["push", "-u", remote, branch], { cwd: state.workdir });
-      log.info(`[dispose] 已 push 分支 ${branch} -> ${remote}`);
+      log.info(`[dispose] pushed branch ${branch} -> ${remote}`);
     } catch (err) {
-      // push 失败降级为 keep（4.9 节：失败保留 worktree 与分支，人工处理）
-      log.warn(`[dispose] push 失败（${String(err)}），降级为 keep`);
-      log.debug(`[dispose] push 失败详情: ${String(err)}`);
+      // On push failure, degrade to keep (section 4.9: keep worktree and branch for manual handling)
+      log.warn(`[dispose] push failed (${String(err)}), degraded to keep`);
+      log.debug(`[dispose] push failure detail: ${String(err)}`);
     }
   }
 }
@@ -251,11 +251,11 @@ function switchProject(
   sessionID: string,
   projectId: string,
 ): ToolResult {
-  log.debug(`[switch_project] 入参: sessionID=${sessionID}, projectId=${projectId}`);
+  log.debug(`[switch_project] input: sessionID=${sessionID}, projectId=${projectId}`);
   const project = findProject(config, projectId);
   if (!project) {
-    log.debug(`[switch_project] 项目未命中注册表: ${projectId}`);
-    throw new Error(`项目不存在: ${projectId}，请先用 list_project 查看可用项目`);
+    log.debug(`[switch_project] project not in registry: ${projectId}`);
+    throw new Error(`Project not found: ${projectId}, run list_project to see available projects`);
   }
 
   const shortId = shortSessionID(sessionID);
@@ -263,19 +263,19 @@ function switchProject(
   const branch = `${config.worktree.branch_prefix}${shortId}`;
 
   const existing = readSessionState(config, sessionID);
-  log.debug(`[switch_project] 已有状态: ${existing ? JSON.stringify(existing) : "null"}`);
+  log.debug(`[switch_project] existing state: ${existing ? JSON.stringify(existing) : "null"}`);
   if (existing && existing.project_id === project.id && existing.workdir && fs.existsSync(existing.workdir)) {
-    log.info(`[switch_project] 会话内复用已有 worktree: ${existing.workdir} (branch=${existing.worktree_branch})`);
+    log.info(`[switch_project] reusing existing worktree in session: ${existing.workdir} (branch=${existing.worktree_branch})`);
     return successResult(existing);
   }
 
   if (fs.existsSync(worktreeDir)) {
     const registered = findWorktree(project.repo_path, worktreeDir);
     log.debug(
-      `[switch_project] worktree 目录已存在，git 注册: ${registered ? `是 (branch=${registered.branch})` : "否"}`,
+      `[switch_project] worktree dir exists, git registered: ${registered ? `yes (branch=${registered.branch})` : "no"}`,
     );
     if (registered) {
-      log.warn(`[switch_project] worktree 目录存在但状态缺失，复用已注册目录: ${worktreeDir} (branch=${registered.branch ?? branch})`);
+      log.warn(`[switch_project] worktree dir exists but state is missing, reusing registered dir: ${worktreeDir} (branch=${registered.branch ?? branch})`);
       const state: SessionState = {
         project_id: project.id,
         project_name: project.name,
@@ -283,21 +283,21 @@ function switchProject(
         worktree_branch: registered.branch ?? branch,
       };
       const file = writeSessionState(config, sessionID, state);
-      log.info(`[switch_project] 状态已写入: ${file}`);
+      log.info(`[switch_project] state written: ${file}`);
       return successResult(state);
     }
-    throw new Error(`worktree 目录已存在但未注册为 git worktree: ${worktreeDir}，请人工检查后清理`);
+    throw new Error(`worktree dir exists but is not a registered git worktree: ${worktreeDir}, inspect and clean it manually`);
   }
 
-  log.info(`[switch_project] 创建 worktree: git worktree add --no-checkout -b ${branch} ${worktreeDir} (HEAD @ ${project.repo_path})`);
+  log.info(`[switch_project] creating worktree: git worktree add --no-checkout -b ${branch} ${worktreeDir} (HEAD @ ${project.repo_path})`);
   try {
     createWorktree({ repoPath: project.repo_path, worktreeDir, branch }, log);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error(`[switch_project] worktree 创建失败: ${message}`);
-    throw new Error(`创建 worktree 失败（${project.name}）: ${message}`);
+    log.error(`[switch_project] worktree creation failed: ${message}`);
+    throw new Error(`Failed to create worktree (${project.name}): ${message}`);
   }
-  log.info(`[switch_project] worktree 创建成功: ${worktreeDir} (branch=${branch})`);
+  log.info(`[switch_project] worktree created: ${worktreeDir} (branch=${branch})`);
 
   const state: SessionState = {
     project_id: project.id,
@@ -306,13 +306,13 @@ function switchProject(
     worktree_branch: branch,
   };
   const file = writeSessionState(config, sessionID, state);
-  log.info(`[switch_project] 状态已写入: ${file}`);
+  log.info(`[switch_project] state written: ${file}`);
   return successResult(state);
 }
 
 function successResult(state: SessionState): ToolResult {
   return {
-    title: "项目已切换",
+    title: "Project switched",
     output: JSON.stringify(
       {
         workdir: state.workdir,
@@ -350,56 +350,57 @@ function guardToolCall(opts: {
   if (toolName === "bash") {
     const rawWorkdir = typeof args.workdir === "string" ? args.workdir : undefined;
     const wd = rawWorkdir ? path.resolve(instanceDir, rawWorkdir) : instanceDir;
-    log.debug(`[guard] bash workdir 解析: ${wd}（raw=${rawWorkdir ?? "缺省，取 instanceDir"}）`);
+    log.debug(`[guard] bash workdir resolved: ${wd} (raw=${rawWorkdir ?? "defaulted to instanceDir"})`);
     if (!isInside(wd, allowed)) {
-      violation = `bash workdir 超出当前项目工作目录: ${wd}（允许: ${allowed}）`;
+      violation = `bash workdir outside the current project working dir: ${wd} (allowed: ${allowed})`;
     } else if (matchesDeny(config, wd, log)) {
-      violation = `bash workdir 命中 deny 路径: ${wd}`;
+      violation = `bash workdir matches a deny path: ${wd}`;
     }
   } else if (FILE_TOOLS.has(toolName)) {
-    // 参数名按 opencode 1.18.11 实证：read/write/edit=filePath；glob/grep=path（搜索目录）；
-    // apply_patch=patchText（*** Add/Delete/Update/Move 行内路径，可多个）
+    // Parameter names verified against opencode 1.18.11: read/write/edit=filePath; glob/grep=path (search dir);
+    // apply_patch=patchText (paths inside *** Add/Delete/Update/Move lines, possibly multiple)
     const candidates = fileToolPaths(toolName, args);
     for (const raw of candidates) {
       const candidate = path.resolve(instanceDir, raw);
-      log.debug(`[guard] ${toolName} 路径解析: ${raw} -> ${candidate}`);
+      log.debug(`[guard] ${toolName} path resolved: ${raw} -> ${candidate}`);
       if (!isInside(candidate, allowed)) {
-        violation = `${toolName} 路径超出当前项目工作目录: ${raw}（允许: ${allowed}）`;
+        violation = `${toolName} path outside the current project working dir: ${raw} (allowed: ${allowed})`;
         break;
       }
       if (matchesDeny(config, candidate, log)) {
-        violation = `${toolName} 路径命中 deny 路径: ${raw}`;
+        violation = `${toolName} path matches a deny path: ${raw}`;
         break;
       }
     }
   }
 
   if (!violation) {
-    log.debug(`[guard] 放行: ${toolName}（路径检查通过）`);
+    log.debug(`[guard] allowed: ${toolName} (path check passed)`);
     return;
   }
   log.warn(`[guard] ${violation}`);
   if (config.guard.enabled && config.guard.reject_on_violation) {
     log.debug(
-      `[guard] 拒绝执行（reject_on_violation=${config.guard.reject_on_violation}, enabled=${config.guard.enabled}）`,
+      `[guard] rejecting execution (reject_on_violation=${config.guard.reject_on_violation}, enabled=${config.guard.enabled})`,
     );
-    throw new Error(`${violation}。请先调用 switch_project 切换到目标项目后再操作`);
+    throw new Error(`${violation}. Call switch_project to switch to the target project first`);
   }
 }
 
-/** 提取文件工具的参数路径列表（参数名按 opencode 1.18.11 实证） */
+/** Extract the path arguments of file tools (parameter names verified against opencode 1.18.11) */
 function fileToolPaths(toolName: string, args: Record<string, unknown>): string[] {
   if (toolName === "apply_patch") {
     return typeof args.patchText === "string" ? extractPatchPaths(args.patchText) : [];
   }
   if (toolName === "glob" || toolName === "grep") {
-    // glob/grep 搜索目录参数是 path；缺省时搜索根为会话目录（home），无显式路径可校验
+    // The search-dir argument for glob/grep is path; when omitted the search root is the session
+    // directory (home), leaving no explicit path to validate.
     return typeof args.path === "string" ? [args.path] : [];
   }
   return typeof args.filePath === "string" ? [args.filePath] : [];
 }
 
-/** 从 apply_patch 的 patchText 提取所有目标路径（*** Add/Delete/Update File / Move to 行） */
+/** Extract all target paths from an apply_patch patchText (*** Add/Delete/Update File / Move to lines) */
 function extractPatchPaths(patchText: string): string[] {
   const paths: string[] = [];
   for (const line of patchText.split("\n")) {
@@ -415,26 +416,26 @@ function extractPatchPaths(patchText: string): string[] {
   return paths;
 }
 
-/** 判断候选路径是否命中 guard.deny_paths（allow_paths 优先放行） */
+/** Whether a candidate path hits guard.deny_paths (allow_paths take precedence) */
 function matchesDeny(config: RelayConfig, candidate: string, log: RelayLogger): boolean {
   const resolved = path.resolve(candidate);
   for (const p of config.guard.allow_paths) {
     if (globMatch(resolved, p)) {
-      log.debug(`[guard] allow_paths 命中，豁免: ${candidate} 匹配 ${p}`);
+      log.debug(`[guard] allow_paths hit, exempted: ${candidate} matches ${p}`);
       return false;
     }
   }
   for (const p of config.guard.deny_paths) {
     if (globMatch(resolved, p)) {
-      log.debug(`[guard] deny_paths 命中: ${candidate} 匹配 ${p}`);
+      log.debug(`[guard] deny_paths hit: ${candidate} matches ${p}`);
       return true;
     }
   }
-  log.debug(`[guard] deny/allow 均未命中: ${candidate}`);
+  log.debug(`[guard] no deny/allow match: ${candidate}`);
   return false;
 }
 
-/** 轻量 glob 匹配：`/dir/**`（目录及其后代）与 `/dir`（目录本身及其下）两种形式 */
+/** Lightweight glob match: `/dir/**` (the dir and its descendants) and `/dir` (the dir itself and below) */
 function globMatch(candidate: string, pattern: string): boolean {
   const resolved = path.resolve(expandTilde(pattern));
   const base = resolved.endsWith("/**") ? resolved.slice(0, -3) : resolved;
@@ -447,7 +448,7 @@ function expandTilde(p: string): string {
   return p;
 }
 
-/** 回收超过 stale_days 天不活跃的 worktree（P3，4.8 节设计） */
+/** Reclaim worktrees inactive for more than stale_days (P3, section 4.8 design) */
 export function cleanupStaleWorktrees(
   config: RelayConfig,
   log: RelayLogger,
@@ -459,9 +460,9 @@ export function cleanupStaleWorktrees(
 
   const worktrees = findWorktreeDirs(worktreeRoot);
   log.debug(
-    `[cleanup] 扫描到 ${worktrees.length} 个 worktree 目录（stale_days=${staleDays}, cutoff=${new Date(cutoff).toISOString()}）`,
+    `[cleanup] scanned ${worktrees.length} worktree dirs (stale_days=${staleDays}, cutoff=${new Date(cutoff).toISOString()})`,
   );
-  if (worktrees.length === 0) return "没有需要回收的 worktree";
+  if (worktrees.length === 0) return "no worktrees to reclaim";
 
   const lines: string[] = [];
   let removed = 0;
@@ -471,21 +472,21 @@ export function cleanupStaleWorktrees(
     try {
       mtimeMs = fs.statSync(wt.dir).mtimeMs;
     } catch {
-      log.debug(`[cleanup] 目录不存在，跳过: ${wt.dir}`);
-      continue; // 目录已不存在
+      log.debug(`[cleanup] dir missing, skipping: ${wt.dir}`);
+      continue; // dir no longer exists
     }
     if (mtimeMs > cutoff) {
-      log.debug(`[cleanup] 活跃，跳过: ${wt.dir}（mtime=${new Date(mtimeMs).toISOString()}）`);
-      continue; // 活跃，跳过
+      log.debug(`[cleanup] active, skipping: ${wt.dir} (mtime=${new Date(mtimeMs).toISOString()})`);
+      continue; // active, skip
     }
-    log.debug(`[cleanup] 不活跃，待回收: ${wt.dir}（mtime=${new Date(mtimeMs).toISOString()}）`);
+    log.debug(`[cleanup] inactive, to reclaim: ${wt.dir} (mtime=${new Date(mtimeMs).toISOString()})`);
 
-    // 两步走：git worktree remove --force（清 git 元数据 + 目录）+ 同步删 state
+    // Two steps: git worktree remove --force (clears git metadata + dir) + delete matching state file
     const project = findProject(config, wt.project);
     const stateFile = path.join(config.paths.state_dir, sanitizeSessionID(wt.dir.split(path.sep).pop() ?? "") + ".json");
 
     if (dryRun) {
-      lines.push(`[dry-run] 待回收: ${wt.dir}（最后活动 ${new Date(mtimeMs).toISOString()}）`);
+      lines.push(`[dry-run] to reclaim: ${wt.dir} (last active ${new Date(mtimeMs).toISOString()})`);
       continue;
     }
 
@@ -493,24 +494,24 @@ export function cleanupStaleWorktrees(
       if (project) {
         removeWorktree(project.repo_path, wt.dir, log);
       } else {
-        // 项目不在注册表：仅清理目录（无 repo 可执行 git worktree remove）
+        // Project not in registry: only clean the dir (no repo available for git worktree remove)
         fs.rmSync(wt.dir, { recursive: true, force: true });
       }
       if (fs.existsSync(stateFile)) fs.rmSync(stateFile, { force: true });
       removed++;
-      lines.push(`已回收: ${wt.dir}`);
+      lines.push(`reclaimed: ${wt.dir}`);
     } catch (err) {
-      log.debug(`[cleanup] 回收失败详情: ${wt.dir} (${String(err)})`);
-      lines.push(`回收失败（跳过）: ${wt.dir} (${String(err)})`);
+      log.debug(`[cleanup] reclaim failure detail: ${wt.dir} (${String(err)})`);
+      lines.push(`reclaim failed (skipped): ${wt.dir} (${String(err)})`);
     }
   }
 
-  const summary = `共回收 ${removed} 个不活跃 worktree${lines.length ? "\n" + lines.join("\n") : ""}`;
+  const summary = `reclaimed ${removed} inactive worktrees${lines.length ? "\n" + lines.join("\n") : ""}`;
   log.info(`[cleanup] ${summary}`);
   return summary;
 }
 
-/** 前缀比较 + 路径分隔符边界，防止 /a/foo 与 /a/foobar 误判 */
+/** Prefix comparison with a path separator boundary, so /a/foo and /a/foobar are not confused */
 function isInside(candidate: string, container: string): boolean {
   const resolved = path.resolve(candidate);
   const base = path.resolve(container);

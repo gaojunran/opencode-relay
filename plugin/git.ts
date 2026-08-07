@@ -9,7 +9,7 @@ export interface WorktreeEntry {
   head: string;
 }
 
-/** 执行 git 命令（execFileSync，无 shell 拼接）；失败时抛出带 stderr 的 Error */
+/** Run a git command (execFileSync, no shell concatenation); throws an Error with stderr on failure */
 export function execGit(
   args: string[],
   opts: { cwd?: string } = {},
@@ -18,20 +18,20 @@ export function execGit(
   logger?.debug(`[git] ${args.join(" ")} (cwd: ${opts.cwd ?? process.cwd()})`);
   try {
     const out = execFileSync("git", args, { cwd: opts.cwd, encoding: "utf8" }).trim();
-    logger?.debug(`[git] 输出: ${out.length > 200 ? out.slice(0, 200) + "…" : out}`);
+    logger?.debug(`[git] output: ${out.length > 200 ? out.slice(0, 200) + "..." : out}`);
     return out;
   } catch (err) {
     const e = err as { stderr?: string | Buffer; message?: string };
     const detail =
       typeof e.stderr === "string"
         ? e.stderr.trim()
-        : (e.stderr?.toString().trim() ?? e.message ?? "git 命令执行失败");
-    logger?.debug(`[git] 失败: ${detail}`);
-    throw new Error(`git ${args[0]} 失败: ${detail}`);
+        : (e.stderr?.toString().trim() ?? e.message ?? "git command failed");
+    logger?.debug(`[git] failure: ${detail}`);
+    throw new Error(`git ${args[0]} failed: ${detail}`);
   }
 }
 
-/** 无条件创建独立 worktree：git worktree add --no-checkout -b <branch> <dir> <repo HEAD>，随后 reset 物化工作区文件 */
+/** Unconditionally create an isolated worktree: git worktree add --no-checkout -b <branch> <dir> <repo HEAD>, then reset to materialize the working tree */
 export function createWorktree(
   opts: {
     repoPath: string;
@@ -46,11 +46,12 @@ export function createWorktree(
     { cwd: opts.repoPath },
     logger,
   );
-  // --no-checkout 后工作区为空（仅 .git），reset --hard 物化文件（对齐 opencode worktree/index.ts:237 原生流程）
+  // After --no-checkout the worktree is empty (only .git); reset --hard materializes files
+  // (aligned with the native flow in opencode worktree/index.ts:237)
   execGit(["reset", "--hard", "HEAD"], { cwd: opts.worktreeDir }, logger);
 }
 
-/** 解析 git worktree list --porcelain 输出 */
+/** Parse `git worktree list --porcelain` output */
 export function listWorktrees(repoPath: string): WorktreeEntry[] {
   const out = execGit(["worktree", "list", "--porcelain"], { cwd: repoPath });
   if (!out) return [];
@@ -70,22 +71,23 @@ export function listWorktrees(repoPath: string): WorktreeEntry[] {
   return entries;
 }
 
-/** 在 repoPath 的 worktree 列表中查找指定目录，未注册返回 null */
+/** Find a directory in the repo's worktree list; returns null when not registered */
 export function findWorktree(repoPath: string, worktreeDir: string): WorktreeEntry | null {
   const resolved = path.resolve(worktreeDir);
   return listWorktrees(repoPath).find((w) => path.resolve(w.path) === resolved) ?? null;
 }
 
-/** 回收 worktree 目录（P3，7 天不活跃清理）：git worktree remove --force，随后可同步删除对应 state 文件 */
+/** Reclaim a worktree dir (P3, reclaim inactive after 7 days): git worktree remove --force, then optionally delete the matching state file */
 export function removeWorktree(repoPath: string, worktreeDir: string, logger?: RelayLogger): void {
   execGit(["worktree", "remove", "--force", worktreeDir], { cwd: repoPath }, logger);
   if (fs.existsSync(worktreeDir)) {
-    // git worktree remove 通常已删除目录；残留时兜底清理（--force 下目录内未跟踪文件可能残留）
+    // git worktree remove usually deletes the dir; fall back to rm for leftovers
+    // (untracked files inside may remain even with --force)
     fs.rmSync(worktreeDir, { recursive: true, force: true });
   }
 }
 
-/** 列出 worktree_root 下所有 worktree 目录（含已存在但 git 未注册的孤儿目录） */
+/** List all worktree dirs under worktree_root (includes orphan dirs that exist but are not git-registered) */
 export function findWorktreeDirs(worktreeRoot: string): { project: string; dir: string }[] {
   if (!fs.existsSync(worktreeRoot)) return [];
   const out: { project: string; dir: string }[] = [];

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// ---------- 类型定义 ----------
+// ---------- Type definitions ----------
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type EndOfSessionStrategy = "keep" | "push" | "cleanup";
@@ -38,7 +38,7 @@ export interface RelayLogger {
   error(msg: string): void;
 }
 
-// ---------- 日志 ----------
+// ---------- Logging ----------
 
 const LOG_THRESHOLD: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
@@ -55,11 +55,11 @@ export function createLogger(level: string): RelayLogger {
   };
 }
 
-// ---------- 轻量 TOML 解析 ----------
+// ---------- Lightweight TOML parser ----------
 
 type TomlTable = Record<string, unknown>;
 
-/** 去除行内 # 注释（字符串内的 # 保留） */
+/** Strip inline # comments (a # inside a string is preserved) */
 function stripComment(line: string): string {
   let inString = false;
   for (let i = 0; i < line.length; i++) {
@@ -76,7 +76,7 @@ function stripComment(line: string): string {
   return line;
 }
 
-/** 按顶层逗号切分（忽略字符串、数组、行内表内部的逗号） */
+/** Split on top-level commas (ignores commas inside strings, arrays, and inline tables) */
 function splitTopLevel(input: string): string[] {
   const parts: string[] = [];
   let current = "";
@@ -114,7 +114,7 @@ function splitTopLevel(input: string): string[] {
   return parts;
 }
 
-/** 解析行内值：字符串 / 数字 / 布尔 / 数组 / 行内表 */
+/** Parse an inline value: string / number / boolean / array / inline table */
 function parseValue(raw: string): unknown {
   const v = raw.trim();
   if (v.startsWith('"') || v.startsWith("'")) {
@@ -202,10 +202,10 @@ function parseToml(text: string): TomlTable {
   return root;
 }
 
-// ---------- 配置映射 ----------
+// ---------- Config mapping ----------
 
 const DEFAULT_TEMPLATE =
-  "当前项目: {project_name}（{project_id}），工作目录: {workdir}，分支: {branch}。bash 工具请用 workdir 参数，文件操作用绝对路径，不要直接修改主副本。";
+  "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}. Use the workdir parameter for bash, absolute paths for file operations, and never modify the main copy.";
 
 const VALID_END_OF_SESSION: readonly string[] = ["keep", "push", "cleanup"];
 
@@ -248,7 +248,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
     if (!id) continue;
     const repoPath = asString(t.repo_path, "");
     if (!repoPath) {
-      console.warn(`[opencode-relay] 项目 "${id}" 缺少 repo_path，已从注册表忽略`);
+      console.warn(`[opencode-relay] project "${id}" is missing repo_path, ignored from registry`);
       continue;
     }
     items.push({
@@ -311,7 +311,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
   };
 }
 
-// ---------- 加载（启动时读一次，模块级缓存） ----------
+// ---------- Loading (read once at startup, module-level cache) ----------
 
 let cachedConfig: RelayConfig | null = null;
 
@@ -330,14 +330,14 @@ function readConfigFromDisk(): RelayConfig {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     console.warn(
-      `[opencode-relay] ${code === "ENOENT" ? "配置文件不存在" : "读取配置失败"}，使用默认配置: ${file} (${String(err)})`,
+      `[opencode-relay] ${code === "ENOENT" ? "config file not found" : "failed to read config"}, using defaults: ${file} (${String(err)})`,
     );
     return buildConfig({});
   }
   try {
     return buildConfig(parseToml(text));
   } catch (err) {
-    console.warn(`[opencode-relay] 解析配置失败，使用默认配置: ${file} (${String(err)})`);
+    console.warn(`[opencode-relay] failed to parse config, using defaults: ${file} (${String(err)})`);
     return buildConfig({});
   }
 }
@@ -347,14 +347,14 @@ export function loadConfig(): RelayConfig {
   return cachedConfig;
 }
 
-/** 测试辅助：清空模块级缓存，让下一次 loadConfig() 重读磁盘 */
+/** Test helper: clear the module-level cache so the next loadConfig() re-reads disk */
 export function resetConfig(): void {
   cachedConfig = null;
 }
 
-// ---------- 项目注册表 ----------
+// ---------- Project registry ----------
 
-/** 显式 items 优先；为空时按 scan_dir 扫描含 .git 的子目录 */
+/** Explicit items take precedence; when empty, scan scan_dir for subdirectories containing .git */
 export function getProjectRegistry(config: RelayConfig): ProjectItem[] {
   if (config.projects.items.length > 0) return config.projects.items;
   const scanDir = config.projects.scan_dir;
@@ -363,7 +363,7 @@ export function getProjectRegistry(config: RelayConfig): ProjectItem[] {
   try {
     entries = fs.readdirSync(scanDir, { withFileTypes: true });
   } catch (err) {
-    console.warn(`[opencode-relay] 扫描项目目录失败: ${scanDir} (${String(err)})`);
+    console.warn(`[opencode-relay] failed to scan project dir: ${scanDir} (${String(err)})`);
     return [];
   }
   return entries

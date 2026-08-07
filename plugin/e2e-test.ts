@@ -1,4 +1,4 @@
-// P1 端到端验证脚本（throwaway）：直接加载插件模块，跑真实 git 场景
+// P1 end-to-end verification script (throwaway): loads the plugin module directly and runs real git scenarios
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -15,7 +15,7 @@ const stateDir = path.join(home, ".opencode", "state")
 fs.mkdirSync(path.join(configDir), { recursive: true })
 fs.mkdirSync(repoPath, { recursive: true })
 
-// 造主副本 git 仓库
+// Create the main-copy git repo
 execFileSync("git", ["init", "-q"], { cwd: repoPath })
 execFileSync("git", ["config", "user.email", "t@t"], { cwd: repoPath })
 execFileSync("git", ["config", "user.name", "t"], { cwd: repoPath })
@@ -23,7 +23,7 @@ fs.writeFileSync(path.join(repoPath, "README.md"), "hello projA\n")
 execFileSync("git", ["add", "."], { cwd: repoPath })
 execFileSync("git", ["commit", "-qm", "init"], { cwd: repoPath })
 
-// 写测试配置
+// Write the test config
 const conf = `[general]
 home = "${home}"
 [paths]
@@ -40,7 +40,7 @@ branch_prefix = "opencode/"
 end_of_session = "keep"
 [inject]
 enabled = true
-template = "当前项目: {project_name}（{project_id}），工作目录: {workdir}，分支: {branch}。"
+template = "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}."
 [guard]
 enabled = true
 reject_on_violation = true
@@ -48,7 +48,7 @@ reject_on_violation = true
 fs.writeFileSync(path.join(configDir, "config.toml"), conf)
 process.env.OPENCODE_RELAY_CONFIG = path.join(configDir, "config.toml")
 
-// 加载插件
+// Load the plugin
 const mod = await import("./relay.ts")
 const plugin = mod.default
 const hooks = await plugin.server({ directory: home, project: { id: "relay-test", directory: home } } as any)
@@ -57,155 +57,155 @@ const hooks = await plugin.server({ directory: home, project: { id: "relay-test"
 const listOut = await hooks.tool!.list_project!.execute({}, { sessionID: "ses_abc123xyz", directory: home } as any)
 console.log("== list_project ==")
 console.log(typeof listOut === "string" ? listOut : listOut.output)
-if (JSON.stringify(listOut).includes(repoPath)) throw new Error("list_project 泄露了 repo_path!")
+if (JSON.stringify(listOut).includes(repoPath)) throw new Error("list_project leaked repo_path!")
 
-// 2. switch_project 首次创建
+// 2. switch_project first creation
 const sw = await hooks.tool!.switch_project!.execute({ project_id: "projA" }, { sessionID: "ses_abc123xyz", directory: home } as any)
-console.log("\n== switch_project 首次 ==")
+console.log("\n== switch_project first time ==")
 const swObj = typeof sw === "string" ? JSON.parse(sw) : JSON.parse(sw.output)
 console.log(JSON.stringify(swObj, null, 2))
 const workdir = swObj.workdir
-if (!fs.existsSync(workdir)) throw new Error("worktree 目录不存在")
-if (!fs.existsSync(path.join(workdir, "README.md"))) throw new Error("worktree 文件未物化!")
-console.log("worktree 文件已物化: README.md 存在 ✓")
+if (!fs.existsSync(workdir)) throw new Error("worktree dir does not exist")
+if (!fs.existsSync(path.join(workdir, "README.md"))) throw new Error("worktree files not materialized!")
+console.log("worktree files materialized: README.md exists ✓")
 
-// 3. 状态文件已写（文件名经 sanitizeSessionID：去掉下划线）
+// 3. State file written (filename sanitized via sanitizeSessionID: underscore stripped)
 const stateFile = path.join(stateDir, "sesabc123xyz.json")
-if (!fs.existsSync(stateFile)) throw new Error("状态文件未写")
-console.log("状态文件: " + stateFile)
+if (!fs.existsSync(stateFile)) throw new Error("state file not written")
+console.log("state file: " + stateFile)
 
-// 4. 会话内复用（二次 switch 不重建）
+// 4. Reuse within the session (second switch does not recreate)
 fs.writeFileSync(path.join(workdir, "README.md"), "modified by agent\n")
 const sw2 = await hooks.tool!.switch_project!.execute({ project_id: "projA" }, { sessionID: "ses_abc123xyz", directory: home } as any)
 const sw2Obj = typeof sw2 === "string" ? JSON.parse(sw2) : JSON.parse(sw2.output)
-console.log("\n== switch_project 二次（复用）==")
+console.log("\n== switch_project second time (reuse) ==")
 console.log(JSON.stringify(sw2Obj, null, 2))
-if (sw2Obj.workdir !== workdir) throw new Error("复用失败: workdir 变了")
-if (!fs.readFileSync(path.join(workdir, "README.md"), "utf8").includes("modified")) throw new Error("复用失败: 工作区被重置")
-console.log("复用成功，工作区改动保留 ✓")
+if (sw2Obj.workdir !== workdir) throw new Error("reuse failed: workdir changed")
+if (!fs.readFileSync(path.join(workdir, "README.md"), "utf8").includes("modified")) throw new Error("reuse failed: workspace was reset")
+console.log("reuse succeeded, workspace changes kept ✓")
 
-// 5. tool.execute.before 拦截
-console.log("\n== guard 拦截测试 ==")
-// 5a. bash workdir 越界
+// 5. tool.execute.before interception
+console.log("\n== guard interception tests ==")
+// 5a. bash workdir out of bounds
 try {
   await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c1" }, { args: { command: "ls", workdir: "/etc" } })
-  throw new Error("bash 越界未被拦截!")
+  throw new Error("bash out-of-bounds not intercepted!")
 } catch (e) {
-  console.log("bash /etc 越界 → 拒绝 ✓: " + (e as Error).message.slice(0, 60))
+  console.log("bash /etc out of bounds → rejected ✓: " + (e as Error).message.slice(0, 60))
 }
-// 5b. bash workdir 缺省（home）越界
+// 5b. bash workdir defaulted (home) out of bounds
 try {
   await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c2" }, { args: { command: "ls" } })
-  throw new Error("bash 缺省 workdir 越界未被拦截!")
+  throw new Error("bash default workdir out-of-bounds not intercepted!")
 } catch (e) {
-  console.log("bash 缺省 workdir（home）→ 拒绝 ✓")
+  console.log("bash default workdir (home) → rejected ✓")
 }
-// 5c. read 绝对路径越界
+// 5c. read absolute path out of bounds
 try {
   await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c3" }, { args: { filePath: "/etc/passwd" } })
-  throw new Error("read 越界未被拦截!")
+  throw new Error("read out-of-bounds not intercepted!")
 } catch (e) {
-  console.log("read /etc/passwd → 拒绝 ✓")
+  console.log("read /etc/passwd → rejected ✓")
 }
-// 5c2. write 绝对路径越界（参数名 filePath 大写 P）
+// 5c2. write absolute path out of bounds (param name filePath with capital P)
 try {
   await hooks["tool.execute.before"]!({ tool: "write", sessionID: "ses_abc123xyz", callID: "c9" }, { args: { filePath: "/etc/pwned.txt", content: "x" } })
-  throw new Error("write 越界未被拦截!")
+  throw new Error("write out-of-bounds not intercepted!")
 } catch (e) {
-  console.log("write /etc/pwned.txt → 拒绝 ✓")
+  console.log("write /etc/pwned.txt → rejected ✓")
 }
-// 5c3. edit 相对路径越界（解析到 instanceDir=home，主副本在 home 下）
+// 5c3. edit relative path out of bounds (resolved to instanceDir=home, main copy is under home)
 try {
   await hooks["tool.execute.before"]!({ tool: "edit", sessionID: "ses_abc123xyz", callID: "c10" }, { args: { filePath: path.join(workspaceRoot, "projA", "README.md") } })
-  throw new Error("edit 主副本越界未被拦截!")
+  throw new Error("edit main-copy path not intercepted!")
 } catch (e) {
-  console.log("edit 主副本路径 → 拒绝 ✓")
+  console.log("edit main-copy path → rejected ✓")
 }
-// 5c4. apply_patch 越界（patchText 内 Update File 指向 home 外）
+// 5c4. apply_patch out of bounds (Update File inside patchText points outside home)
 try {
   await hooks["tool.execute.before"]!({ tool: "apply_patch", sessionID: "ses_abc123xyz", callID: "c11" }, { args: { patchText: "*** Begin Patch\n*** Update File: /etc/passwd\n@@ context\n*** End Patch" } })
-  throw new Error("apply_patch 越界未被拦截!")
+  throw new Error("apply_patch out-of-bounds not intercepted!")
 } catch (e) {
-  console.log("apply_patch /etc/passwd → 拒绝 ✓")
+  console.log("apply_patch /etc/passwd → rejected ✓")
 }
-// 5c5. grep 搜索目录越界
+// 5c5. grep search dir out of bounds
 try {
   await hooks["tool.execute.before"]!({ tool: "grep", sessionID: "ses_abc123xyz", callID: "c12" }, { args: { pattern: "x", path: "/etc" } })
-  throw new Error("grep path 越界未被拦截!")
+  throw new Error("grep path out-of-bounds not intercepted!")
 } catch (e) {
-  console.log("grep path=/etc → 拒绝 ✓")
+  console.log("grep path=/etc → rejected ✓")
 }
-// 5d. 工作目录内放行
+// 5d. In-workdir operations pass
 await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c4" }, { args: { command: "ls", workdir } })
-console.log("bash workdir=worktree → 放行 ✓")
+console.log("bash workdir=worktree → allowed ✓")
 await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c5" }, { args: { filePath: path.join(workdir, "README.md") } })
-console.log("read worktree 内绝对路径 → 放行 ✓")
+console.log("read absolute path inside worktree → allowed ✓")
 await hooks["tool.execute.before"]!({ tool: "write", sessionID: "ses_abc123xyz", callID: "c13" }, { args: { filePath: path.join(workdir, "new.txt"), content: "x" } })
-console.log("write worktree 内绝对路径 → 放行 ✓")
+console.log("write absolute path inside worktree → allowed ✓")
 
-// 5e. deny_paths 追加层：worktree 内但命中 deny 的路径被拒绝
-// 5f. worktree 内非 deny 路径放行（验证 deny 不误伤）
+// 5e. deny_paths additional layer: a path inside the worktree but matching deny is rejected
+// 5f. a non-deny path inside the worktree passes (verifies deny does not over-trigger)
 const denyDir = path.join(workdir, "secret")
 fs.mkdirSync(denyDir, { recursive: true })
-// 配置在 server() 调用时读取，需写入含 deny_paths 的新配置并重新加载插件
+// Config is read at server() time; write a new config with deny_paths and reload the plugin
 const conf2 = conf + `deny_paths = ["${denyDir}/**"]\n`
 fs.writeFileSync(path.join(configDir, "config.toml"), conf2)
 resetConfig()
 const hooks2 = await plugin.server({ directory: home, project: { id: "relay-test", directory: home } } as any)
-// 5e: worktree 内但命中 deny → 拒绝
+// 5e: inside worktree but matching deny → rejected
 try {
   await hooks2["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c7" }, { args: { filePath: path.join(denyDir, "x.txt") } })
-  throw new Error("deny 未生效")
+  throw new Error("deny not effective")
 } catch (e) {
-  console.log(`read worktree 内 deny 子目录 → 拒绝 ✓: ${(e as Error).message.slice(0, 55)}`)
+  console.log(`read inside worktree but matching deny dir → rejected ✓: ${(e as Error).message.slice(0, 55)}`)
 }
-// 5f: worktree 内非 deny → 放行
+// 5f: inside worktree, not matching deny → allowed
 await hooks2["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c8" }, { args: { filePath: path.join(workdir, "README.md") } })
-console.log("read worktree 内非 deny → 放行 ✓")
+console.log("read inside worktree, non-deny → allowed ✓")
 
-// 6. system.transform 注入
+// 6. system.transform injection
 const sysOut: { system: string[] } = { system: [] }
 await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz", model: {} as any }, sysOut)
 console.log("\n== system.transform ==")
 console.log(sysOut.system[0])
-if (!sysOut.system[0].includes("projA") || !sysOut.system[0].includes(workdir)) throw new Error("注入内容不完整")
+if (!sysOut.system[0].includes("projA") || !sysOut.system[0].includes(workdir)) throw new Error("injected content incomplete")
 
-// 7. 未切项目的会话不拦截
+// 7. Sessions without a switched project are not intercepted
 await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_other", callID: "c6" }, { args: { command: "ls", workdir: "/etc" } })
-console.log("\n未切项目会话不拦截 ✓")
+console.log("\nsessions without a switched project are not intercepted ✓")
 
-// 7b. 未切项目会话：system.transform 注入项目清单引导 switch
+// 7b. Sessions without a switched project: system.transform injects the project list to guide switch
 const sysOut2: { system: string[] } = { system: [] }
 await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_other", model: {} as any }, sysOut2)
-console.log("\n== system.transform 未切项目（清单引导）==")
+console.log("\n== system.transform no-project (list guidance) ==")
 console.log(sysOut2.system[0])
-if (!sysOut2.system[0].includes("projA")) throw new Error("未切项目会话未注入项目清单!")
-if (!sysOut2.system[0].includes("switch_project")) throw new Error("清单注入缺少 switch 引导!")
-console.log("未切项目会话注入项目清单 + switch 引导 ✓")
+if (!sysOut2.system[0].includes("projA")) throw new Error("no-project session did not get the project list!")
+if (!sysOut2.system[0].includes("switch_project")) throw new Error("list injection missing switch guidance!")
+console.log("no-project session got project list + switch guidance ✓")
 
-// 8. leave_project：切回未切状态，guard 恢复放行、system.transform 恢复清单引导、worktree 保留可复用
+// 8. leave_project: back to no-project state, guard allows again, system.transform shows list again, worktree kept and reusable
 console.log("\n== leave_project ==")
 const lp = await hooks2.tool!.leave_project!.execute({}, { sessionID: "ses_abc123xyz", directory: home } as any)
 const lpOut = typeof lp === "string" ? JSON.parse(lp) : JSON.parse(lp.output)
 console.log(JSON.stringify(lpOut, null, 2))
-if (lpOut.left_project !== "projA") throw new Error("leave_project 返回项目不正确")
-if (!fs.existsSync(workdir)) throw new Error("leave_project 不应删除 worktree!")
-console.log("leave_project 返回 + worktree 保留 ✓")
-// 8a. 退出后 guard 放行（无状态会话不拦截）
+if (lpOut.left_project !== "projA") throw new Error("leave_project returned wrong project")
+if (!fs.existsSync(workdir)) throw new Error("leave_project should not delete the worktree!")
+console.log("leave_project result + worktree preserved ✓")
+// 8a. After leaving, guard allows (no-state session is not intercepted)
 await hooks2["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c14" }, { args: { command: "ls", workdir: "/etc" } })
-console.log("leave 后 bash /etc → 放行（恢复无状态）✓")
-// 8b. 退出后 system.transform 恢复清单引导
+console.log("after leave, bash /etc → allowed (back to no-state) ✓")
+// 8b. After leaving, system.transform restores list guidance
 const sysOut3: { system: string[] } = { system: [] }
 await hooks2["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz", model: {} as any }, sysOut3)
-if (!sysOut3.system[0].includes("switch_project")) throw new Error("leave 后未恢复清单引导!")
-console.log("leave 后 system.transform 恢复清单引导 ✓")
-// 8c. 同会话再 switch 复用原 worktree（state 缺失但有注册目录）
+if (!sysOut3.system[0].includes("switch_project")) throw new Error("after leave, list guidance not restored!")
+console.log("after leave, system.transform restores list guidance ✓")
+// 8c. Switching again in the same session reuses the original worktree (state missing but dir registered)
 const sw3 = await hooks2.tool!.switch_project!.execute({ project_id: "projA" }, { sessionID: "ses_abc123xyz", directory: home } as any)
 const sw3Obj = typeof sw3 === "string" ? JSON.parse(sw3) : JSON.parse(sw3.output)
-if (sw3Obj.workdir !== workdir) throw new Error("leave 后再 switch 未复用原 worktree!")
-console.log("leave 后再 switch → 复用原 worktree ✓")
+if (sw3Obj.workdir !== workdir) throw new Error("after leave, switch did not reuse the original worktree!")
+console.log("after leave, switch → reused original worktree ✓")
 
-console.log("\n✅ P1 全部验证通过")
-// 清理
+console.log("\n✅ P1 all verifications passed")
+// Cleanup
 fs.rmSync(R, { recursive: true, force: true })
-console.log("测试环境已清理")
+console.log("test environment cleaned up")

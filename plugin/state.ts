@@ -9,12 +9,12 @@ export interface SessionState {
   worktree_branch: string;
 }
 
-/** 去掉 sessionID 中的非字母数字字符 */
+/** Strip non-alphanumeric characters from a sessionID */
 export function sanitizeSessionID(sessionID: string): string {
   return sessionID.replace(/[^A-Za-z0-9]/g, "");
 }
 
-/** session 短 id：去掉非字母数字后取前 8 字符，用于 worktree 目录与分支命名 */
+/** Session short id: first 8 chars after stripping non-alphanumerics, used for worktree dir and branch naming */
 export function shortSessionID(sessionID: string): string {
   return sanitizeSessionID(sessionID).slice(0, 8);
 }
@@ -35,7 +35,7 @@ function isSessionState(v: unknown): v is SessionState {
   );
 }
 
-/** 读取会话状态；文件不存在或格式非法返回 null */
+/** Read session state; returns null when the file is missing or malformed */
 export function readSessionState(config: RelayConfig, sessionID: string): SessionState | null {
   const file = stateFilePath(config, sessionID);
   let text: string;
@@ -52,7 +52,7 @@ export function readSessionState(config: RelayConfig, sessionID: string): Sessio
   }
 }
 
-/** 写入会话状态，返回状态文件路径 */
+/** Write session state, returns the state file path */
 export function writeSessionState(
   config: RelayConfig,
   sessionID: string,
@@ -64,7 +64,7 @@ export function writeSessionState(
   return file;
 }
 
-/** 删除会话状态，返回是否实际删除 */
+/** Delete session state, returns whether the file was actually removed */
 export function removeSessionState(config: RelayConfig, sessionID: string): boolean {
   const file = stateFilePath(config, sessionID);
   try {
