@@ -15,10 +15,10 @@ export function execGit(
   opts: { cwd?: string } = {},
   logger?: RelayLogger,
 ): string {
-  logger?.debug(`[git] ${args.join(" ")} (cwd: ${opts.cwd ?? process.cwd()})`);
+  logger?.debug("git", `exec: ${args.join(" ")} (cwd: ${opts.cwd ?? process.cwd()})`);
   try {
     const out = execFileSync("git", args, { cwd: opts.cwd, encoding: "utf8" }).trim();
-    logger?.debug(`[git] output: ${out.length > 200 ? out.slice(0, 200) + "..." : out}`);
+    logger?.debug("git", `output: ${out.length > 200 ? out.slice(0, 200) + "..." : out}`);
     return out;
   } catch (err) {
     const e = err as { stderr?: string | Buffer; message?: string };
@@ -26,7 +26,7 @@ export function execGit(
       typeof e.stderr === "string"
         ? e.stderr.trim()
         : (e.stderr?.toString().trim() ?? e.message ?? "git command failed");
-    logger?.debug(`[git] failure: ${detail}`);
+    logger?.debug("git", `failure: ${detail}`);
     throw new Error(`git ${args[0]} failed: ${detail}`);
   }
 }

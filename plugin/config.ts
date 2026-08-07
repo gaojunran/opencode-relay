@@ -32,10 +32,10 @@ export interface RelayConfig {
 }
 
 export interface RelayLogger {
-  debug(msg: string): void;
-  info(msg: string): void;
-  warn(msg: string): void;
-  error(msg: string): void;
+  debug(source: string, msg: string): void;
+  info(source: string, msg: string): void;
+  warn(source: string, msg: string): void;
+  error(source: string, msg: string): void;
 }
 
 // ---------- Logging ----------
@@ -71,18 +71,18 @@ function makeLogWriter(logDir: string): ((line: string) => void) | null {
 export function createLogger(level: string, logDir = ""): RelayLogger {
   const threshold = LOG_THRESHOLD[level as LogLevel] ?? 1;
   const writeFile = makeLogWriter(logDir);
-  const emit = (min: number, name: LogLevel, method: "log" | "warn" | "error", msg: string) => {
+  const emit = (min: number, name: LogLevel, method: "log" | "warn" | "error", source: string, msg: string) => {
     if (threshold <= min) {
-      const line = `ts=${logfmtValue(new Date().toISOString())} level=${name} msg=${logfmtValue(msg)}`;
+      const line = `ts=${logfmtValue(new Date().toISOString())} level=${name} logger=${logfmtValue(source)} msg=${logfmtValue(msg)}`;
       console[method](line);
       writeFile?.(line);
     }
   };
   return {
-    debug: (m) => emit(0, "debug", "log", m),
-    info: (m) => emit(1, "info", "log", m),
-    warn: (m) => emit(2, "warn", "warn", m),
-    error: (m) => emit(3, "error", "error", m),
+    debug: (s, m) => emit(0, "debug", "log", s, m),
+    info: (s, m) => emit(1, "info", "log", s, m),
+    warn: (s, m) => emit(2, "warn", "warn", s, m),
+    error: (s, m) => emit(3, "error", "error", s, m),
   };
 }
 

@@ -36,18 +36,18 @@ export default {
     const config = loadConfig();
     const log = createLogger(config.general.log_level, config.general.log_file);
     if (!config.general.enabled) {
-      log.info("Plugin disabled (general.enabled = false)");
+      log.info("plugin", "Plugin disabled (general.enabled = false)");
       return {};
     }
     const sessionDir = path.resolve(input.directory);
     const home = path.resolve(config.general.home);
     if (!isInside(sessionDir, home)) {
-      log.info(`[opt-out] Session directory outside home, skipping plugin load: sessionDir=${sessionDir}, home=${home}`);
+      log.info("opt-out", `Session directory outside home, skipping plugin load: sessionDir=${sessionDir}, home=${home}`);
       return {};
     }
-    log.info(`Plugin started, session directory: ${sessionDir} (home: ${home})`);
-    log.debug(
-      `[config] log_level=${config.general.log_level} enabled=${config.general.enabled} home=${config.general.home} workspace_root=${config.paths.workspace_root} worktree_root=${config.paths.worktree_root} state_dir=${config.paths.state_dir} projects=${getProjectRegistry(config).length}`,
+    log.info("plugin", `Plugin started, session directory: ${sessionDir} (home: ${home})`);
+    log.debug("config", 
+      `log_level=${config.general.log_level} enabled=${config.general.enabled} home=${config.general.home} workspace_root=${config.paths.workspace_root} worktree_root=${config.paths.worktree_root} state_dir=${config.paths.state_dir} projects=${getProjectRegistry(config).length}`,
     );
     return buildHooks({ config, log, instanceDir: input.directory });
   },
@@ -80,7 +80,7 @@ function buildHooks(opts: {
             if (withDescription && p.description) entry.description = p.description;
             return entry;
           });
-          log.debug(`[list_project] returning ${result.length} projects`);
+          log.debug("list_project", `returning ${result.length} projects`);
           return JSON.stringify(result, null, 2);
         },
       }),
@@ -128,15 +128,15 @@ function buildHooks(opts: {
           activeSessionID = context.sessionID;
           const state = readSessionState(config, context.sessionID);
           if (!state) {
-            log.info(`[leave_project] session ${context.sessionID} has no project switched, nothing to leave`);
+            log.info("leave_project", `session ${context.sessionID} has no project switched, nothing to leave`);
             return {
               title: "Not in a project",
               output: "This session has no project switched, no leave_project needed.",
             };
           }
           const removed = removeSessionState(config, context.sessionID);
-          log.info(
-            `[leave_project] session ${context.sessionID} left project ${state.project_id}, state removed: ${removed} (worktree kept: ${state.workdir}, branch=${state.worktree_branch})`,
+          log.info("leave_project", 
+            `session ${context.sessionID} left project ${state.project_id}, state removed: ${removed} (worktree kept: ${state.workdir}, branch=${state.worktree_branch})`,
           );
           return {
             title: "Left project",
@@ -171,12 +171,12 @@ function buildHooks(opts: {
             output.system.push(
               `Available projects (call switch_project({project_id}) to switch to the target project, see ids below):\n${lines.join("\n")}`,
             );
-            log.debug(`[system.transform] session ${sessionID} has no state, injected project list (${projects.length} projects)`);
+            log.debug("system.transform", `session ${sessionID} has no state, injected project list (${projects.length} projects)`);
           }
         } else {
-          log.debug(`[system.transform] session ${sessionID} has no state, skipped injection`);
+          log.debug("system.transform", `session ${sessionID} has no state, skipped injection`);
         }
-        log.debug(`[system.transform] session ${sessionID} has no state, injected project guide`);
+        log.debug("system.transform", `session ${sessionID} has no state, injected project guide`);
         return;
       }
       const text = renderTemplate(config.inject.template, state);
@@ -188,9 +188,9 @@ function buildHooks(opts: {
           output.system.push(
             `Project instructions (from the current worktree, ${path.basename(findAgentsMd(state.workdir) ?? "")}):\n${instructions}`,
           );
-          log.debug(`[system.transform] session ${sessionID} injected worktree instructions (${instructions.length} chars)`);
+          log.debug("system.transform", `session ${sessionID} injected worktree instructions (${instructions.length} chars)`);
         } else {
-          log.debug(`[system.transform] session ${sessionID} no instruction file in worktree, skipped AGENTS.md injection`);
+          log.debug("system.transform", `session ${sessionID} no instruction file in worktree, skipped AGENTS.md injection`);
         }
       }
       if (config.inject.skills) {
@@ -199,19 +199,19 @@ function buildHooks(opts: {
           output.system.push(
             `Project skills available in this worktree (load them with the skill tool when relevant):\n${skills.map((s) => `- ${s}`).join("\n")}`,
           );
-          log.debug(`[system.transform] session ${sessionID} injected ${skills.length} project skills`);
+          log.debug("system.transform", `session ${sessionID} injected ${skills.length} project skills`);
         }
       }
-      log.debug(
-        `[system.transform] session ${sessionID} injected project ${state.project_id}, first 60 chars: ${text.slice(0, 60)}`,
+      log.debug("system.transform", 
+        `session ${sessionID} injected project ${state.project_id}, first 60 chars: ${text.slice(0, 60)}`,
       );
     },
 
     "tool.execute.before": async (hookInput, output) => {
       const { tool: toolName, sessionID } = hookInput;
       if (!toolName || !sessionID) return;
-      log.debug(
-        `[guard] tool ${toolName} (session ${sessionID}) args=${truncate(JSON.stringify(output.args ?? {}), 1200)}`,
+      log.debug("guard", 
+        `tool ${toolName} (session ${sessionID}) args=${truncate(JSON.stringify(output.args ?? {}), 1200)}`,
       );
       const state = readSessionState(config, sessionID);
       if (!state) {
@@ -233,7 +233,7 @@ function buildHooks(opts: {
       const state = readSessionState(config, sessionID);
       if (!state || Object.keys(state.env).length === 0) return;
       const count = Object.keys(state.env).length;
-      log.debug(`[shell.env] session ${sessionID} injecting ${count} env vars from project ${state.project_id}`);
+      log.debug("shell.env", `session ${sessionID} injecting ${count} env vars from project ${state.project_id}`);
       Object.assign(output.env, state.env);
     },
 
@@ -242,8 +242,8 @@ function buildHooks(opts: {
     "experimental.text.complete": async (hookInput, output) => {
       const { sessionID } = hookInput;
       if (!sessionID) return;
-      log.debug(
-        `[llm] session ${sessionID} assistant text: ${truncate(output.text, 4000)}`,
+      log.debug("llm", 
+        `session ${sessionID} assistant text: ${truncate(output.text, 4000)}`,
       );
     },
 
@@ -252,8 +252,8 @@ function buildHooks(opts: {
     "tool.execute.after": async (hookInput, output) => {
       const { tool: toolName, sessionID } = hookInput;
       if (!toolName || !sessionID) return;
-      log.debug(
-        `[tool.after] ${toolName} (session ${sessionID}) title=${output.title ?? ""} output=${truncate(output.output ?? "", 800)}`,
+      log.debug("tool.after", 
+        `${toolName} (session ${sessionID}) title=${output.title ?? ""} output=${truncate(output.output ?? "", 800)}`,
       );
     },
 
@@ -266,19 +266,19 @@ function buildHooks(opts: {
         .map((p) => (p as { text?: string }).text ?? "")
         .filter(Boolean)
         .join("\n");
-      if (text) log.debug(`[chat.message] session ${sessionID}: ${truncate(text, 1000)}`);
+      if (text) log.debug("chat.message", `session ${sessionID}: ${truncate(text, 1000)}`);
     },
 
     dispose: async () => {
-      log.debug(`[dispose] activeSessionID=${activeSessionID ?? "(not set)"}`);
+      log.debug("dispose", `activeSessionID=${activeSessionID ?? "(not set)"}`);
       if (!activeSessionID) {
-        log.info("[dispose] no active session state, skipping end_of_session handling");
+        log.info("dispose", "no active session state, skipping end_of_session handling");
         return;
       }
       const state = readSessionState(config, activeSessionID);
-      log.debug(`[dispose] session ${activeSessionID} state=${state ? JSON.stringify(state) : "null"}`);
+      log.debug("dispose", `session ${activeSessionID} state=${state ? JSON.stringify(state) : "null"}`);
       if (!state) {
-        log.info(`[dispose] session ${activeSessionID} has no project state, skipping`);
+        log.info("dispose", `session ${activeSessionID} has no project state, skipping`);
         return;
       }
       handleEndOfSession(config, log, activeSessionID, state);
@@ -294,24 +294,24 @@ function handleEndOfSession(
   state: SessionState,
 ): void {
   const strategy = config.worktree.end_of_session;
-  log.info(`[dispose] session ${sessionID} end_of_session=${strategy} (project=${state.project_id}, branch=${state.worktree_branch})`);
-  log.debug(`[dispose] entering branch: end_of_session=${strategy}`);
+  log.info("dispose", `session ${sessionID} end_of_session=${strategy} (project=${state.project_id}, branch=${state.worktree_branch})`);
+  log.debug("dispose", `entering branch: end_of_session=${strategy}`);
 
   if (strategy === "keep") return;
 
   if (strategy === "cleanup") {
     const project = findProject(config, state.project_id);
     if (!project) {
-      log.warn(`[dispose] project ${state.project_id} not in registry, skipping cleanup`);
+      log.warn("dispose", `project ${state.project_id} not in registry, skipping cleanup`);
       return;
     }
-    log.debug(`[dispose] cleanup branch: repo_path=${project.repo_path}, workdir=${state.workdir}`);
+    log.debug("dispose", `cleanup branch: repo_path=${project.repo_path}, workdir=${state.workdir}`);
     try {
       removeWorktree(project.repo_path, state.workdir, log);
-      log.info(`[dispose] cleaned up worktree: ${state.workdir}`);
+      log.info("dispose", `cleaned up worktree: ${state.workdir}`);
     } catch (err) {
-      log.error(`[dispose] worktree cleanup failed: ${String(err)}`);
-      log.debug(`[dispose] worktree cleanup failure detail: ${String(err)}`);
+      log.error("dispose", `worktree cleanup failed: ${String(err)}`);
+      log.debug("dispose", `worktree cleanup failure detail: ${String(err)}`);
     }
     return;
   }
@@ -319,19 +319,19 @@ function handleEndOfSession(
   if (strategy === "push") {
     const project = findProject(config, state.project_id);
     if (!project) {
-      log.warn(`[dispose] project ${state.project_id} not in registry, skipping push`);
+      log.warn("dispose", `project ${state.project_id} not in registry, skipping push`);
       return;
     }
     const remote = config.worktree.remote;
     const branch = state.worktree_branch;
-    log.debug(`[dispose] push branch: remote=${remote}, branch=${branch}`);
+    log.debug("dispose", `push branch: remote=${remote}, branch=${branch}`);
     try {
       execGit(["push", "-u", remote, branch], { cwd: state.workdir });
-      log.info(`[dispose] pushed branch ${branch} -> ${remote}`);
+      log.info("dispose", `pushed branch ${branch} -> ${remote}`);
     } catch (err) {
       // On push failure, degrade to keep (section 4.9: keep worktree and branch for manual handling)
-      log.warn(`[dispose] push failed (${String(err)}), degraded to keep`);
-      log.debug(`[dispose] push failure detail: ${String(err)}`);
+      log.warn("dispose", `push failed (${String(err)}), degraded to keep`);
+      log.debug("dispose", `push failure detail: ${String(err)}`);
     }
   }
 }
@@ -372,7 +372,7 @@ export function runOnSwitch(
   const cmd = config.worktree.on_switch;
   if (!cmd) return {};
   const expanded = cmd.replace(/\{\{dir\}\}/g, workdir);
-  log.info(`[on_switch] running in ${workdir}: ${expanded}`);
+  log.info("on_switch", `running in ${workdir}: ${expanded}`);
   const res = spawnSync(expanded, {
     cwd: workdir,
     shell: true,
@@ -381,15 +381,15 @@ export function runOnSwitch(
     maxBuffer: 1024 * 1024,
   });
   if (res.error) {
-    log.error(`[on_switch] spawn failed: ${res.error.message}`);
+    log.error("on_switch", `spawn failed: ${res.error.message}`);
     return {};
   }
   if (res.status !== 0) {
-    log.warn(`[on_switch] command exited ${res.status}: ${truncate((res.stderr || res.stdout || "").slice(0, 500), 500)}`);
+    log.warn("on_switch", `command exited ${res.status}: ${truncate((res.stderr || res.stdout || "").slice(0, 500), 500)}`);
     return {};
   }
   const env = parseEnvDump(res.stdout ?? "");
-  log.debug(`[on_switch] captured ${Object.keys(env).length} env vars`);
+  log.debug("on_switch", `captured ${Object.keys(env).length} env vars`);
   return env;
 }
 
@@ -399,10 +399,10 @@ function switchProject(
   sessionID: string,
   projectId: string,
 ): ToolResult {
-  log.debug(`[switch_project] input: sessionID=${sessionID}, projectId=${projectId}`);
+  log.debug("switch_project", `input: sessionID=${sessionID}, projectId=${projectId}`);
   const project = findProject(config, projectId);
   if (!project) {
-    log.debug(`[switch_project] project not in registry: ${projectId}`);
+    log.debug("switch_project", `project not in registry: ${projectId}`);
     throw new Error(`Project not found: ${projectId}, run list_project to see available projects`);
   }
 
@@ -411,19 +411,19 @@ function switchProject(
   const branch = `${config.worktree.branch_prefix}${shortId}`;
 
   const existing = readSessionState(config, sessionID);
-  log.debug(`[switch_project] existing state: ${existing ? JSON.stringify(existing) : "null"}`);
+  log.debug("switch_project", `existing state: ${existing ? JSON.stringify(existing) : "null"}`);
   if (existing && existing.project_id === project.id && existing.workdir && fs.existsSync(existing.workdir)) {
-    log.info(`[switch_project] reusing existing worktree in session: ${existing.workdir} (branch=${existing.worktree_branch})`);
+    log.info("switch_project", `reusing existing worktree in session: ${existing.workdir} (branch=${existing.worktree_branch})`);
     return successResult(existing);
   }
 
   if (fs.existsSync(worktreeDir)) {
     const registered = findWorktree(project.repo_path, worktreeDir);
-    log.debug(
-      `[switch_project] worktree dir exists, git registered: ${registered ? `yes (branch=${registered.branch})` : "no"}`,
+    log.debug("switch_project", 
+      `worktree dir exists, git registered: ${registered ? `yes (branch=${registered.branch})` : "no"}`,
     );
     if (registered) {
-      log.warn(`[switch_project] worktree dir exists but state is missing, reusing registered dir: ${worktreeDir} (branch=${registered.branch ?? branch})`);
+      log.warn("switch_project", `worktree dir exists but state is missing, reusing registered dir: ${worktreeDir} (branch=${registered.branch ?? branch})`);
       const env = runOnSwitch(config, log, worktreeDir);
       const state: SessionState = {
         project_id: project.id,
@@ -433,21 +433,21 @@ function switchProject(
         env,
       };
       const file = writeSessionState(config, sessionID, state);
-      log.info(`[switch_project] state written: ${file}`);
+      log.info("switch_project", `state written: ${file}`);
       return successResult(state);
     }
     throw new Error(`worktree dir exists but is not a registered git worktree: ${worktreeDir}, inspect and clean it manually`);
   }
 
-  log.info(`[switch_project] creating worktree: git worktree add --no-checkout -b ${branch} ${worktreeDir} (HEAD @ ${project.repo_path})`);
+  log.info("switch_project", `creating worktree: git worktree add --no-checkout -b ${branch} ${worktreeDir} (HEAD @ ${project.repo_path})`);
   try {
     createWorktree({ repoPath: project.repo_path, worktreeDir, branch }, log);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error(`[switch_project] worktree creation failed: ${message}`);
+    log.error("switch_project", `worktree creation failed: ${message}`);
     throw new Error(`Failed to create worktree (${project.name}): ${message}`);
   }
-  log.info(`[switch_project] worktree created: ${worktreeDir} (branch=${branch})`);
+  log.info("switch_project", `worktree created: ${worktreeDir} (branch=${branch})`);
 
   const env = runOnSwitch(config, log, worktreeDir);
   const state: SessionState = {
@@ -458,7 +458,7 @@ function switchProject(
     env,
   };
   const file = writeSessionState(config, sessionID, state);
-  log.info(`[switch_project] state written: ${file}`);
+  log.info("switch_project", `state written: ${file}`);
   return successResult(state);
 }
 
@@ -501,7 +501,7 @@ function registerProject(
 
   const entry: ProjectItem = { id, name, repo_path: targetDir };
   writeDynamicProjects(config, [...readDynamicProjects(config).filter((p) => p.id !== id), entry]);
-  log.info(`[register_project] registered ${id}: ${targetDir} (moved from ${dir})`);
+  log.info("register_project", `registered ${id}: ${targetDir} (moved from ${dir})`);
 
   return {
     title: "Project registered",
@@ -531,7 +531,7 @@ function moveDir(src: string, dest: string, log: RelayLogger): void {
     fs.renameSync(src, dest);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "EXDEV") {
-      log.debug(`[register_project] EXDEV on rename, copying instead: ${src} -> ${dest}`);
+      log.debug("register_project", `EXDEV on rename, copying instead: ${src} -> ${dest}`);
       fs.cpSync(src, dest, { recursive: true });
       fs.rmSync(src, { recursive: true, force: true });
       return;
@@ -621,10 +621,10 @@ function guardToolCall(opts: {
     // worktree (the shared reference means this rewrite takes effect on the real call).
     if (!rawWorkdir) {
       args.workdir = allowed;
-      log.debug(`[guard] bash without workdir, defaulted to project worktree: ${allowed}`);
+      log.debug("guard", `bash without workdir, defaulted to project worktree: ${allowed}`);
     } else {
       const wd = path.resolve(instanceDir, rawWorkdir);
-      log.debug(`[guard] bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
+      log.debug("guard", `bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
       if (!isInside(wd, allowed) && !isInAllowDirs(wd, config.guard.allow_dirs)) {
         violation = `bash workdir outside the current project working dir: ${wd} (allowed: ${allowed})`;
       } else if (matchesDeny(config, wd, log)) {
@@ -645,7 +645,7 @@ function guardToolCall(opts: {
       // Resolve relative paths against the project worktree (not the session dir=home), and rewrite
       // the tool arg to the absolute path when the agent's intent is correct (inside the worktree).
       const candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(allowed, raw);
-      log.debug(`[guard] ${toolName} path resolved: ${raw} -> ${candidate}`);
+      log.debug("guard", `${toolName} path resolved: ${raw} -> ${candidate}`);
       if (!isInside(candidate, allowed) && !isInAllowDirs(candidate, config.guard.allow_dirs)) {
         violation = `${toolName} path outside the current project working dir: ${raw} (allowed: ${allowed})`;
         break;
@@ -661,25 +661,25 @@ function guardToolCall(opts: {
         } else if (toolName === "glob" || toolName === "grep") {
           args.path = candidate;
         }
-        log.debug(`[guard] ${toolName} rewrote relative path to absolute: ${candidate}`);
+        log.debug("guard", `${toolName} rewrote relative path to absolute: ${candidate}`);
       }
     }
     // glob/grep without an explicit path default to the worktree as the search root
     // (opencode would otherwise search the session dir=home, which is unverifiable intent).
     if ((toolName === "glob" || toolName === "grep") && typeof args.path !== "string") {
       args.path = allowed;
-      log.debug(`[guard] ${toolName} without path, defaulted search root to worktree: ${allowed}`);
+      log.debug("guard", `${toolName} without path, defaulted search root to worktree: ${allowed}`);
     }
   }
 
   if (!violation) {
-    log.debug(`[guard] allowed: ${toolName} (path check passed)`);
+    log.debug("guard", `allowed: ${toolName} (path check passed)`);
     return;
   }
-  log.warn(`[guard] ${violation}`);
+  log.warn("guard", `${violation}`);
   if (config.guard.enabled && config.guard.reject_on_violation) {
-    log.debug(
-      `[guard] rejecting execution (reject_on_violation=${config.guard.reject_on_violation}, enabled=${config.guard.enabled})`,
+    log.debug("guard", 
+      `rejecting execution (reject_on_violation=${config.guard.reject_on_violation}, enabled=${config.guard.enabled})`,
     );
     throw new Error(`${violation}. Call switch_project to switch to the target project first`);
   }
@@ -698,11 +698,11 @@ function checkCdEscape(command: string, worktree: string, allowDirs: string[], l
   while ((m = cdRe.exec(command)) !== null) {
     const target = m[1] ?? m[2] ?? m[3];
     if (!target) {
-      log.debug(`[guard] bash bare cd (returns home) in: ${command}`);
+      log.debug("guard", `bash bare cd (returns home) in: ${command}`);
       return `bash cd without an argument returns home, outside the project worktree (allowed: ${worktree})`;
     }
     const candidate = path.isAbsolute(target) ? path.resolve(target) : path.resolve(worktree, target);
-    log.debug(`[guard] bash cd target resolved: ${target} -> ${candidate}`);
+    log.debug("guard", `bash cd target resolved: ${target} -> ${candidate}`);
     if (!isInside(candidate, worktree) && !isInAllowDirs(candidate, allowDirs)) {
       return `bash cd escapes the project worktree: ${target} -> ${candidate} (allowed: ${worktree})`;
     }
@@ -763,7 +763,7 @@ function guardDenyOnly(opts: {
     const rawWorkdir = typeof args.workdir === "string" ? args.workdir : undefined;
     if (rawWorkdir) {
       const wd = path.resolve(instanceDir, rawWorkdir);
-      log.debug(`[guard] stateless bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
+      log.debug("guard", `stateless bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
       if (matchesDeny(config, wd, log)) {
         violation = `bash workdir matches a deny path: ${wd}`;
       }
@@ -776,7 +776,7 @@ function guardDenyOnly(opts: {
     const candidates = fileToolPaths(toolName, args);
     for (const raw of candidates) {
       const candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(instanceDir, raw);
-      log.debug(`[guard] stateless ${toolName} path resolved: ${raw} -> ${candidate}`);
+      log.debug("guard", `stateless ${toolName} path resolved: ${raw} -> ${candidate}`);
       if (matchesDeny(config, candidate, log)) {
         violation = `${toolName} path matches a deny path: ${raw}`;
         break;
@@ -785,13 +785,13 @@ function guardDenyOnly(opts: {
   }
 
   if (!violation) {
-    log.debug(`[guard] stateless allowed: ${toolName} (no deny match)`);
+    log.debug("guard", `stateless allowed: ${toolName} (no deny match)`);
     return;
   }
-  log.warn(`[guard] stateless: ${violation}`);
+  log.warn("guard", `stateless: ${violation}`);
   if (config.guard.enabled && config.guard.reject_on_violation) {
-    log.debug(
-      `[guard] stateless rejecting execution (reject_on_violation=${config.guard.reject_on_violation}, enabled=${config.guard.enabled})`,
+    log.debug("guard", 
+      `stateless rejecting execution (reject_on_violation=${config.guard.reject_on_violation}, enabled=${config.guard.enabled})`,
     );
     throw new Error(`${violation}. Call switch_project to switch to the target project first`);
   }
@@ -807,11 +807,11 @@ function checkCdDeny(command: string, instanceDir: string, config: RelayConfig, 
   while ((m = cdRe.exec(command)) !== null) {
     const target = m[1] ?? m[2] ?? m[3];
     if (!target) {
-      log.debug(`[guard] stateless bash bare cd (returns home), allowed`);
+      log.debug("guard", `stateless bash bare cd (returns home), allowed`);
       continue;
     }
     const candidate = path.isAbsolute(target) ? path.resolve(target) : path.resolve(instanceDir, target);
-    log.debug(`[guard] stateless bash cd target resolved: ${target} -> ${candidate}`);
+    log.debug("guard", `stateless bash cd target resolved: ${target} -> ${candidate}`);
     if (matchesDeny(config, candidate, log)) {
       return `bash cd target matches a deny path: ${target} -> ${candidate}`;
     }
@@ -824,17 +824,17 @@ function matchesDeny(config: RelayConfig, candidate: string, log: RelayLogger): 
   const resolved = path.resolve(candidate);
   for (const p of config.guard.allow_paths) {
     if (globMatch(resolved, p)) {
-      log.debug(`[guard] allow_paths hit, exempted: ${candidate} matches ${p}`);
+      log.debug("guard", `allow_paths hit, exempted: ${candidate} matches ${p}`);
       return false;
     }
   }
   for (const p of config.guard.deny_paths) {
     if (globMatch(resolved, p)) {
-      log.debug(`[guard] deny_paths hit: ${candidate} matches ${p}`);
+      log.debug("guard", `deny_paths hit: ${candidate} matches ${p}`);
       return true;
     }
   }
-  log.debug(`[guard] no deny/allow match: ${candidate}`);
+  log.debug("guard", `no deny/allow match: ${candidate}`);
   return false;
 }
 
@@ -862,8 +862,8 @@ export function cleanupStaleWorktrees(
   const cutoff = Date.now() - staleDays * 24 * 60 * 60 * 1000;
 
   const worktrees = findWorktreeDirs(worktreeRoot);
-  log.debug(
-    `[cleanup] scanned ${worktrees.length} worktree dirs (stale_days=${staleDays}, cutoff=${new Date(cutoff).toISOString()})`,
+  log.debug("cleanup", 
+    `scanned ${worktrees.length} worktree dirs (stale_days=${staleDays}, cutoff=${new Date(cutoff).toISOString()})`,
   );
   if (worktrees.length === 0) return "no worktrees to reclaim";
 
@@ -875,14 +875,14 @@ export function cleanupStaleWorktrees(
     try {
       mtimeMs = fs.statSync(wt.dir).mtimeMs;
     } catch {
-      log.debug(`[cleanup] dir missing, skipping: ${wt.dir}`);
+      log.debug("cleanup", `dir missing, skipping: ${wt.dir}`);
       continue; // dir no longer exists
     }
     if (mtimeMs > cutoff) {
-      log.debug(`[cleanup] active, skipping: ${wt.dir} (mtime=${new Date(mtimeMs).toISOString()})`);
+      log.debug("cleanup", `active, skipping: ${wt.dir} (mtime=${new Date(mtimeMs).toISOString()})`);
       continue; // active, skip
     }
-    log.debug(`[cleanup] inactive, to reclaim: ${wt.dir} (mtime=${new Date(mtimeMs).toISOString()})`);
+    log.debug("cleanup", `inactive, to reclaim: ${wt.dir} (mtime=${new Date(mtimeMs).toISOString()})`);
 
     // Two steps: git worktree remove --force (clears git metadata + dir) + delete matching state file
     const project = findProject(config, wt.project);
@@ -904,13 +904,13 @@ export function cleanupStaleWorktrees(
       removed++;
       lines.push(`reclaimed: ${wt.dir}`);
     } catch (err) {
-      log.debug(`[cleanup] reclaim failure detail: ${wt.dir} (${String(err)})`);
+      log.debug("cleanup", `reclaim failure detail: ${wt.dir} (${String(err)})`);
       lines.push(`reclaim failed (skipped): ${wt.dir} (${String(err)})`);
     }
   }
 
   const summary = `reclaimed ${removed} inactive worktrees${lines.length ? "\n" + lines.join("\n") : ""}`;
-  log.info(`[cleanup] ${summary}`);
+  log.info("cleanup", `${summary}`);
   return summary;
 }
 
