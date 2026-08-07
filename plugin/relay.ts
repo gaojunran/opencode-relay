@@ -189,13 +189,47 @@ function buildHooks(opts: {
     "tool.execute.before": async (hookInput, output) => {
       const { tool: toolName, sessionID } = hookInput;
       if (!toolName || !sessionID) return;
+      log.debug(
+        `[guard] tool ${toolName} (session ${sessionID}) args=${truncate(JSON.stringify(output.args ?? {}), 1200)}`,
+      );
       const state = readSessionState(config, sessionID);
       if (!state) {
         log.debug(`[guard] session ${sessionID} has no state, skipping interception`);
         return;
       }
-      log.debug(`[guard] tool ${toolName} (session ${sessionID})`);
       guardToolCall({ config, log, instanceDir, toolName, args: output.args ?? {}, state });
+    },
+
+    // Record the assistant text parts as they stream to completion (exp-2: this is the only
+    // hook that directly exposes the generated LLM text; output.text holds the complete text).
+    "experimental.text.complete": async (hookInput, output) => {
+      const { sessionID } = hookInput;
+      if (!sessionID) return;
+      log.debug(
+        `[llm] session ${sessionID} assistant text: ${truncate(output.text, 4000)}`,
+      );
+    },
+
+    // Record tool execution results so a failure can be traced from the guard decision
+    // through the actual execution output.
+    "tool.execute.after": async (hookInput, output) => {
+      const { tool: toolName, sessionID } = hookInput;
+      if (!toolName || !sessionID) return;
+      log.debug(
+        `[tool.after] ${toolName} (session ${sessionID}) title=${output.title ?? ""} output=${truncate(output.output ?? "", 800)}`,
+      );
+    },
+
+    // Record the incoming user message for debugging the conversation flow.
+    "chat.message": async (hookInput, output) => {
+      const { sessionID } = hookInput;
+      if (!sessionID) return;
+      const text = output.parts
+        ?.filter((p) => p.type === "text")
+        .map((p) => (p as { text?: string }).text ?? "")
+        .filter(Boolean)
+        .join("\n");
+      if (text) log.debug(`[chat.message] session ${sessionID}: ${truncate(text, 1000)}`);
     },
 
     dispose: async () => {
@@ -673,4 +707,9 @@ function isInside(candidate: string, container: string): boolean {
   const resolved = path.resolve(candidate);
   const base = path.resolve(container);
   return resolved === base || resolved.startsWith(`${base}${path.sep}`);
+}
+
+/** Cap a string for debug logging; appends the total length when truncated */
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max)}... (total ${s.length} chars)`;
 }

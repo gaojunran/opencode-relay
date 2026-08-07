@@ -312,6 +312,15 @@ const guideStateful = sysOut5.system.join("\n")
 if (!guideStateful.includes("always use switch_project") || !guideStateful.includes("register_project")) throw new Error("stateful injection missing project guide!")
 console.log("stateful injection contains project guide ✓")
 
+// 10. Debug logging hooks are registered and callable without throwing
+// (experimental.text.complete / tool.execute.after / chat.message)
+await hooks["experimental.text.complete"]!({ sessionID: "ses_abc123xyz", messageID: "m1", partID: "p1" }, { text: "hello from the model" })
+console.log("experimental.text.complete callable ✓")
+await hooks["tool.execute.after"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c30", args: { command: "ls" } }, { title: "ls", output: "README.md\nsrc", metadata: {} })
+console.log("tool.execute.after callable ✓")
+await hooks["chat.message"]!({ sessionID: "ses_abc123xyz", messageID: "m2" }, { message: {} as any, parts: [{ id: "p2", sessionID: "ses_abc123xyz", messageID: "m2", type: "text", text: "explain the codebase" }] })
+console.log("chat.message callable ✓")
+
 console.log("\n✅ P1 all verifications passed")
 // Cleanup
 fs.rmSync(R, { recursive: true, force: true })
