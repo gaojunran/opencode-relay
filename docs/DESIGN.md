@@ -243,37 +243,39 @@ hook: { shell: { env: async ({sessionID}, output) => {
 
 典型配置：`on_switch = "mise env"` 或 `on_switch = "direnv export bash"`（stdout 直接是 export 行，`parseEnvDump` 兼容）。
 
-### 4.4c 子代理会话归并（task 派生的子会话共享父会话项目状态）
+### 4.4c 子代理会话（task 派生的子会话：继承上下文但禁改项目状态）
 
-opencode 的 `task` 工具创建的子代理是**独立 session**（独立 sessionID，DB 用 `parent_id` 关联父会话，见 task.ts:156-172、session.ts:522）。它继承父会话的 directory 并复用同一插件实例（server() 按 directory 只初始化一次），但**不继承上下文**——子代理是干净上下文，会重新调用 switch_project。
+opencode 的 `task` 工具创建的子代理是**独立 session**（独立 sessionID，DB 用 `parent_id` 关联父会话，见 task.ts:156-172、session.ts:522）。它继承父会话的 directory 并复用同一插件实例（server() 按 directory 只初始化一次），但**不继承上下文**——子代理是干净上下文。
 
-**问题**：插件按 sessionID 隔离 state。子代理是新的 sessionID，若它调用 switch_project 会创建**自己的 worktree**（父会话不知道的孤儿目录/分支），父会话 dispose 也不会清理，改动互相隔离。
+**问题**：插件按 sessionID 隔离 state。子代理是新的 sessionID，若它调用 switch_project 会创建**自己的 worktree**（父会话不知道的孤儿目录/分支）；多个子代理并行各自 switch 会互相污染状态。
 
-**方案：子代理状态归并到根父会话**（event hook + resolveSessionID）：
+**方案：读路径归并到根父会话，写路径对子代理关闭**：
 
 ```ts
-const parentMap = new Map<string, string>(); // childID -> parentID
-const resolveSessionID = (id) => {          // 沿 parentMap 递归到根父会话
+const parentMap = new Map<string, string>();        // childID -> parentID
+const childLastActive = new Map<string, number>();  // childID -> 最近活动时间戳
+const resolveSessionID = (id) => {  // 沿 parentMap 递归到根父会话（读路径用）
   let cur = id, seen = new Set();
   while (parentMap.has(cur) && !seen.has(cur)) { seen.add(cur); cur = parentMap.get(cur)!; }
   return cur;
 };
 
 hook: { event: async ({ event }) => {
+  // session.created 建立 child→parent；任何子代理会话事件刷新活动时间戳
   if (event.type === "session.created" && event.properties.info?.parentID) {
-    parentMap.set(event.properties.info.id, event.properties.info.parentID); // 建立 child→parent
+    parentMap.set(event.properties.info.id, event.properties.info.parentID);
   }
+  if (parentMap.has(event.properties.sessionID)) childLastActive.set(event.properties.sessionID, Date.now());
 } }
 ```
 
-所有消费 sessionID 的点（tool.execute.before 的 guard、system.transform 注入、shell.env、switch_project/leave_project 工具、dispose 的 activeSessionID）先 `resolveSessionID()` 再读写 state。效果：
+- **读路径（继承）**：`tool.execute.before` 的 guard、`system.transform` 注入、`shell.env` 先 `resolveSessionID()` 到根父会话——子代理在父会话 worktree 内干活、guard 边界一致、注入父会话当前项目上下文（而非项目清单）。
+- **写路径（禁止）**：`switch_project` / `leave_project` / `register_project` / `cleanup_worktrees` 对子代理会话**直接拒绝**（返回 "Subagent sessions cannot ..."）；`list_project` 只读放行。
+- **父代理保护**：父会话调 `switch_project` 时若有**活跃子代理**（`childLastActive` 在 60 秒窗口内，`SUBAGENT_ACTIVE_WINDOW_MS`）则拒绝，提示等待子代理完成。
 
-- 子代理 switch_project = 父会话切项目 → **复用同一 worktree**，不产生孤儿
-- 子代理的 guard 边界与父会话一致（在父会话 worktree 内放行、越界拦截）
-- system.transform 给子代理注入父会话当前项目上下文（而非项目清单）
-- dispose 统一处理父会话 state，子代理的 work 落在父会话分支上
+效果：子代理只干活不改状态，不产生孤儿 worktree，并行子代理不会互相污染；父会话在子代理活跃期间不能切换项目，保证状态一致性。
 
-注意（exp-6 实证）：`parentID` 不进 `tool.execute.before`/`system.transform` 的 input，只有 `event` hook 的 `session.created`（properties.info 含完整 SessionInfo）或 SDK `session.get()` 能拿到；`dispose` 按实例触发不按会话，不能依赖它清理子代理状态。子代理与父会话共享插件实例，不要在 server() 里做按会话初始化。
+注意（exp-6 实证）：`parentID` 不进 `tool.execute.before`/`system.transform` 的 input，只有 `event` hook 的 `session.created`（properties.info 含完整 SessionInfo）或 SDK `session.get()` 能拿到；`dispose` 按实例触发不按会话，不能依赖它清理子代理状态。子代理与父会话共享插件实例，不要在 server() 里做按会话初始化。活跃判断用活动时间戳近似（opencode 无"子代理任务结束"事件：task 不删子代理会话、无 session.deleted，见 task.ts 无 delete 调用），窗口内的子代理视为运行中。
 
 ### 4.5 tool.execute.before hook（防绕过硬拦截）
 

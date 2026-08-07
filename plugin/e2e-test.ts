@@ -403,11 +403,11 @@ await hooks["chat.message"]!({ sessionID: "ses_abc123xyz", messageID: "m2" }, { 
 }
 console.log("chat.message callable ✓")
 
-// 11. Subagent sessions merge to the parent session
+// 11. Subagent sessions cannot mutate project state; they inherit the parent's context
 // (exp-6: task-created subagents are separate sessions linked via the DB parent_id; only the
-// session.created event exposes parentID. The plugin maps child -> parent and resolves every
-// sessionID to the root parent, so a subagent reuses the parent's worktree instead of creating
-// an orphan, and guard/system.transform enforce the parent's project boundary.)
+// session.created event exposes parentID. State-mutating tools reject subagent calls, and the
+// parent cannot switch while a subagent is active. Read path (guard/system.transform) still
+// resolves to the root parent so subagents work inside the parent's worktree.)
 {
   // Simulate the session.created event for a subagent of ses_abc123xyz
   await hooks.event!({
@@ -417,14 +417,27 @@ console.log("chat.message callable ✓")
       properties: { info: { id: "ses_child001", parentID: "ses_abc123xyz" } },
     },
   } as any)
-  // Subagent switch_project must reuse the parent's worktree (no orphan, same dir)
+  // Subagent switch_project must be rejected (parent-only)
   const swSub = await hooks.tool!.switch_project!.execute(
     { project_id: "projA" },
     { sessionID: "ses_child001", directory: home } as any,
   )
-  const subObj = typeof swSub === "string" ? JSON.parse(swSub) : JSON.parse(swSub.output)
-  if (subObj.workdir !== workdir) throw new Error(`subagent switch did not reuse parent worktree! got ${subObj.workdir}`)
-  console.log("subagent switch_project reuses parent worktree ✓")
+  const swSubText = typeof swSub === "string" ? swSub : swSub.output
+  if (!swSubText.includes("Subagent sessions cannot switch")) throw new Error("subagent switch_project was not rejected!")
+  console.log("subagent switch_project rejected ✓")
+  // Subagent leave_project must be rejected
+  const lvSub = await hooks.tool!.leave_project!.execute({}, { sessionID: "ses_child001", directory: home } as any)
+  const lvSubText = typeof lvSub === "string" ? lvSub : lvSub.output
+  if (!lvSubText.includes("Subagent sessions cannot leave")) throw new Error("subagent leave_project was not rejected!")
+  console.log("subagent leave_project rejected ✓")
+  // Parent cannot switch while a subagent is active (activity window)
+  const swPar = await hooks.tool!.switch_project!.execute(
+    { project_id: "projA" },
+    { sessionID: "ses_abc123xyz", directory: home } as any,
+  )
+  const swParText = typeof swPar === "string" ? swPar : swPar.output
+  if (!swParText.includes("Cannot switch projects while subagents are active")) throw new Error(`parent switch was not blocked by active subagent! got: ${swParText}`)
+  console.log("parent switch blocked while subagent active ✓")
   // Subagent system.transform inherits the parent project context (not the project list)
   const sysSub: { system: string[] } = { system: [] }
   await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_child001", model: {} as any }, sysSub)

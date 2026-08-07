@@ -63,9 +63,34 @@ function buildHooks(opts: {
   // Subagent sessions are separate sessions with their own sessionID, linked to the parent
   // via the DB parent_id column. parentID is only observable through the event hook (exp-6:
   // tool.execute.before / system.transform inputs carry only the subagent's own sessionID).
-  // We map child -> root parent so subagent tool calls inherit the parent's project state
-  // (same worktree, no orphan worktrees, guard consistent, dispose handles the parent once).
+  // Two rules derive from this:
+  //   1. Subagents INHERIT the parent's project state (read path): resolveSessionID maps
+  //      child -> root parent, so guard/system.transform/shell.env apply the parent's
+  //      worktree boundary and context.
+  //   2. Subagents CANNOT change project state (write path): the state-mutating tools
+  //      (switch_project / leave_project / register_project / cleanup_worktrees) reject
+  //      calls from subagent sessions; only the parent may switch, and only when no
+  //      subagent has been active recently (parallel subagents would race the state).
   const parentMap = new Map<string, string>();
+  // Subagent sessions are not deleted when the task finishes (no session.deleted event,
+  // verified in task.ts), so "is a subagent still running" can only be approximated by
+  // activity recency: any event from a known child refreshes its timestamp, and the
+  // parent is blocked from switching while a child has been active within the window.
+  const childLastActive = new Map<string, number>();
+  const SUBAGENT_ACTIVE_WINDOW_MS = 60_000;
+
+  const isSubagentSession = (sessionID?: string): boolean =>
+    !!sessionID && parentMap.has(sessionID);
+
+  const hasActiveSubagents = (parentID: string): boolean => {
+    const cutoff = Date.now() - SUBAGENT_ACTIVE_WINDOW_MS;
+    for (const [child, parent] of parentMap) {
+      if (parent !== parentID) continue;
+      const last = childLastActive.get(child);
+      if (last !== undefined && last >= cutoff) return true;
+    }
+    return false;
+  };
 
   const resolveSessionID = (sessionID: string): string => {
     let current = sessionID;
@@ -108,8 +133,25 @@ function buildHooks(opts: {
           project_id: tool.schema.string().describe("Project ID (from list_project)"),
         },
         execute: async (args, context): Promise<ToolResult> => {
-          activeSessionID = resolveSessionID(context.sessionID);
-          return switchProject(config, log, activeSessionID, args.project_id);
+          if (isSubagentSession(context.sessionID)) {
+            log.info("switch_project", `subagent session ${context.sessionID} rejected from switch_project (parent-only)`);
+            return {
+              title: "Parent-only operation",
+              output:
+                "Subagent sessions cannot switch projects. Ask the parent session to run switch_project instead.",
+            };
+          }
+          const parentID = resolveSessionID(context.sessionID);
+          if (hasActiveSubagents(parentID)) {
+            log.info("switch_project", `parent session ${parentID} blocked from switching: active subagents present`);
+            return {
+              title: "Active subagents",
+              output:
+                "Cannot switch projects while subagents are active. Wait for running subagents to finish, then retry.",
+            };
+          }
+          activeSessionID = parentID;
+          return switchProject(config, log, parentID, args.project_id);
         },
       }),
 
@@ -122,6 +164,14 @@ function buildHooks(opts: {
           name: tool.schema.string().optional().describe("Project name (defaults to the ID)"),
         },
         execute: async (args, context): Promise<ToolResult> => {
+          if (isSubagentSession(context.sessionID)) {
+            log.info("register_project", `subagent session ${context.sessionID} rejected from register_project (parent-only)`);
+            return {
+              title: "Parent-only operation",
+              output:
+                "Subagent sessions cannot register projects. Ask the parent session to run register_project instead.",
+            };
+          }
           activeSessionID = context.sessionID;
           return registerProject(config, log, args);
         },
@@ -133,6 +183,14 @@ function buildHooks(opts: {
           dry_run: tool.schema.boolean().optional().describe("When true, only list items to reclaim, do not delete"),
         },
         execute: async (args, context): Promise<ToolResult> => {
+          if (isSubagentSession(context.sessionID)) {
+            log.info("cleanup_worktrees", `subagent session ${context.sessionID} rejected from cleanup_worktrees (parent-only)`);
+            return {
+              title: "Parent-only operation",
+              output:
+                "Subagent sessions cannot clean up worktrees. Ask the parent session to run cleanup_worktrees instead.",
+            };
+          }
           activeSessionID = context.sessionID;
           return cleanupStaleWorktrees(config, log, args.dry_run === true);
         },
@@ -142,6 +200,14 @@ function buildHooks(opts: {
         description: "Leave the current project and return to the free state. Your changes are preserved.",
         args: {},
         execute: async (_args, context): Promise<ToolResult> => {
+          if (isSubagentSession(context.sessionID)) {
+            log.info("leave_project", `subagent session ${context.sessionID} rejected from leave_project (parent-only)`);
+            return {
+              title: "Parent-only operation",
+              output:
+                "Subagent sessions cannot leave a project. Ask the parent session to run leave_project instead.",
+            };
+          }
           const sessionID = resolveSessionID(context.sessionID);
           activeSessionID = sessionID;
           const state = readSessionState(config, sessionID);
@@ -178,11 +244,17 @@ function buildHooks(opts: {
     // parentID (exp-6: tool.execute.before / system.transform inputs carry only the subagent's
     // own sessionID), so we maintain a child -> parent map here for resolveSessionID.
     event: async ({ event }) => {
+      const props = event.properties as Record<string, unknown>;
+      const sid = props?.sessionID as string | undefined;
+      if (sid && parentMap.has(sid)) {
+        // Any event from a known subagent refreshes its activity timestamp.
+        childLastActive.set(sid, Date.now());
+      }
       if (event.type !== "session.created") return;
-      const props = event.properties as { info?: { id?: string; parentID?: string } };
-      const info = props?.info;
+      const info = (props?.info ?? {}) as { id?: string; parentID?: string };
       if (!info?.id || !info?.parentID) return;
       parentMap.set(info.id, info.parentID);
+      childLastActive.set(info.id, Date.now());
       log.debug("event", `subagent session ${info.id} -> parent ${info.parentID}`);
     },
 
