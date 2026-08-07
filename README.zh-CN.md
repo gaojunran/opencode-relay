@@ -99,6 +99,16 @@ cp config.example.toml ~/.config/opencode-relay/config.toml
 | `[permissions]` | 可选权限规则兜底（`yolo` 下被跳过） |
 | `[list]` | `list_project` 是否返回 `description` |
 
+## 搭配使用
+
+opencode-relay 旨在与 opencode 生态中的其他插件互补，而不是替代它们：
+
+- **[oh-my-opencode-slim](https://github.com/alvinunreal/oh-my-opencode-slim)** — Agent 与工具链调优、工作流打磨；relay 在其之上提供项目隔离。
+- **[magic-context](https://github.com/cortexkit/magic-context)** — 长期项目记忆与会话连续性；relay 在 Agent 跨项目工作时保障工作区安全。
+- **[cc-connect](https://github.com/chenhg5/cc-connect)** — IM（企业微信）桥接，驱动常驻 home 目录会话；relay 把这条单一会话变成按项目隔离的独立 worktree，Agent 通过 `switch_project` 切换项目。
+
+三者与 relay 一样通过 opencode 配置中的同一个 `plugin` 数组加载。组合起来，你就能得到一条持久、带记忆、能在多个项目间安全工作、且只需一次 IM 对话的 Agent。
+
 ## 开发
 
 ```bash

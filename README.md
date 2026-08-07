@@ -99,6 +99,16 @@ See [config.example.toml](config.example.toml) for a fully commented example. Al
 | `[permissions]` | optional ruleset passthrough as a last-resort backstop (skipped under `yolo`) |
 | `[list]` | include `description` in `list_project` output |
 
+## Works well with
+
+opencode-relay is designed to complement other opencode ecosystem plugins rather than replace them:
+
+- **[oh-my-opencode-slim](https://github.com/alvinunreal/oh-my-opencode-slim)** — agent/tooling tuning and workflow polish; relay adds project isolation on top.
+- **[magic-context](https://github.com/cortexkit/magic-context)** — long-term project memory and session continuity; relay keeps the workspace safe while the agent works across projects.
+- **[cc-connect](https://github.com/chenhg5/cc-connect)** — IM (WeCom/WeChat Work) bridge that drives a persistent home-directory session; relay turns that single session into per-project isolated worktrees, with the agent switching projects via `switch_project`.
+
+All three load alongside relay through the same `plugin` array in your opencode config. Combined, they give you a persistent, memory-backed agent that safely works across multiple projects from one IM conversation.
+
 ## Development
 
 ```bash
