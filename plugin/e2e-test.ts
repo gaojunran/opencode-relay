@@ -158,6 +158,30 @@ await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", 
 console.log("read absolute path inside worktree → allowed ✓")
 await hooks["tool.execute.before"]!({ tool: "write", sessionID: "ses_abc123xyz", callID: "c13" }, { args: { filePath: path.join(workdir, "new.txt"), content: "x" } })
 console.log("write absolute path inside worktree → allowed ✓")
+// 5d2. bash cd escapes: absolute path out of worktree → rejected
+try {
+  await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c14" }, { args: { command: "cd /etc && ls", workdir } })
+  throw new Error("bash cd escape not intercepted!")
+} catch (e) {
+  console.log("bash cd /etc → rejected ✓: " + (e as Error).message.slice(0, 60))
+}
+// 5d3. bash cd escapes: relative path resolving out of worktree → rejected
+try {
+  await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c15" }, { args: { command: "cd .. && ls", workdir } })
+  throw new Error("bash cd .. escape not intercepted!")
+} catch (e) {
+  console.log("bash cd .. → rejected ✓: " + (e as Error).message.slice(0, 60))
+}
+// 5d4. bash bare cd (returns home) → rejected
+try {
+  await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c16" }, { args: { command: "cd && pwd", workdir } })
+  throw new Error("bash bare cd not intercepted!")
+} catch (e) {
+  console.log("bash bare cd → rejected ✓: " + (e as Error).message.slice(0, 60))
+}
+// 5d5. bash cd to a subdir inside the worktree → allowed
+await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c17" }, { args: { command: "cd src && ls", workdir } })
+console.log("bash cd src (inside worktree) → allowed ✓")
 
 // 5e. deny_paths additional layer: a path inside the worktree but matching deny is rejected
 // 5f. a non-deny path inside the worktree passes (verifies deny does not over-trigger)

@@ -452,14 +452,20 @@ function guardToolCall(opts: {
     if (!rawWorkdir) {
       args.workdir = allowed;
       log.debug(`[guard] bash without workdir, defaulted to project worktree: ${allowed}`);
-      return;
+    } else {
+      const wd = path.resolve(instanceDir, rawWorkdir);
+      log.debug(`[guard] bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
+      if (!isInside(wd, allowed)) {
+        violation = `bash workdir outside the current project working dir: ${wd} (allowed: ${allowed})`;
+      } else if (matchesDeny(config, wd, log)) {
+        violation = `bash workdir matches a deny path: ${wd}`;
+      }
     }
-    const wd = path.resolve(instanceDir, rawWorkdir);
-    log.debug(`[guard] bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
-    if (!isInside(wd, allowed)) {
-      violation = `bash workdir outside the current project working dir: ${wd} (allowed: ${allowed})`;
-    } else if (matchesDeny(config, wd, log)) {
-      violation = `bash workdir matches a deny path: ${wd}`;
+    // cd is statically resolvable: a bare cd returns home, and a cd target outside the worktree
+    // is an escape attempt regardless of the agent's intent.
+    if (!violation && typeof args.command === "string") {
+      const cdViolation = checkCdEscape(args.command, allowed, log);
+      if (cdViolation) violation = cdViolation;
     }
   } else if (FILE_TOOLS.has(toolName)) {
     // Parameter names verified against opencode 1.18.5: read/write/edit=filePath; glob/grep=path (search dir);
@@ -507,6 +513,31 @@ function guardToolCall(opts: {
     );
     throw new Error(`${violation}. Call switch_project to switch to the target project first`);
   }
+}
+
+/**
+ * Check a bash command for cd escapes: a bare cd returns home, and any cd target that resolves
+ * outside the project worktree is an escape attempt (relative targets resolve against the worktree).
+ * Returns a violation message, or null when no cd escape is found.
+ */
+function checkCdEscape(command: string, worktree: string, log: RelayLogger): string | null {
+  // Match `cd` invocations: bare cd, cd <path>, cd <path> followed by &&, ;, | or end.
+  // Use word boundaries to avoid matching e.g. `scd`; stop the path at shell metacharacters.
+  const cdRe = /\bcd(?:\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|`]+)))?/g;
+  let m: RegExpExecArray | null;
+  while ((m = cdRe.exec(command)) !== null) {
+    const target = m[1] ?? m[2] ?? m[3];
+    if (!target) {
+      log.debug(`[guard] bash bare cd (returns home) in: ${command}`);
+      return `bash cd without an argument returns home, outside the project worktree (allowed: ${worktree})`;
+    }
+    const candidate = path.isAbsolute(target) ? path.resolve(target) : path.resolve(worktree, target);
+    log.debug(`[guard] bash cd target resolved: ${target} -> ${candidate}`);
+    if (!isInside(candidate, worktree)) {
+      return `bash cd escapes the project worktree: ${target} -> ${candidate} (allowed: ${worktree})`;
+    }
+  }
+  return null;
 }
 
 /** Extract the path arguments of file tools (parameter names verified against opencode 1.18.11) */
