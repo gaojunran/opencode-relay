@@ -42,6 +42,13 @@ export interface RelayLogger {
 
 const LOG_THRESHOLD: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
+/** Escape a value for the logfmt format: values containing whitespace, quotes or '=' are
+ *  double-quoted with backslash escapes (matches the logfmt spec). */
+function logfmtValue(v: string): string {
+  if (/^[A-Za-z0-9_./:@+-]+$/.test(v)) return v;
+  return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+}
+
 /** Daily-rotated log file writer. Append-only, never throws (a failed log write must not
  *  break the plugin). Returns null when file logging is disabled (empty dir). */
 function makeLogWriter(logDir: string): ((line: string) => void) | null {
@@ -64,18 +71,18 @@ function makeLogWriter(logDir: string): ((line: string) => void) | null {
 export function createLogger(level: string, logDir = ""): RelayLogger {
   const threshold = LOG_THRESHOLD[level as LogLevel] ?? 1;
   const writeFile = makeLogWriter(logDir);
-  const emit = (min: number, method: "log" | "warn" | "error", msg: string) => {
+  const emit = (min: number, name: LogLevel, method: "log" | "warn" | "error", msg: string) => {
     if (threshold <= min) {
-      const line = `[opencode-relay] ${msg}`;
+      const line = `ts=${logfmtValue(new Date().toISOString())} level=${name} msg=${logfmtValue(msg)}`;
       console[method](line);
       writeFile?.(line);
     }
   };
   return {
-    debug: (m) => emit(0, "log", m),
-    info: (m) => emit(1, "log", m),
-    warn: (m) => emit(2, "warn", m),
-    error: (m) => emit(3, "error", m),
+    debug: (m) => emit(0, "debug", "log", m),
+    info: (m) => emit(1, "info", "log", m),
+    warn: (m) => emit(2, "warn", "warn", m),
+    error: (m) => emit(3, "error", "error", m),
   };
 }
 

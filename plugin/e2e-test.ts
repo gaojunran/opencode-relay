@@ -396,9 +396,10 @@ await hooks["chat.message"]!({ sessionID: "ses_abc123xyz", messageID: "m2" }, { 
   const day = new Date().toISOString().slice(0, 10)
   const logFile = path.join(logDir, `relay-${day}.log`)
   const content = fs.readFileSync(logFile, "utf8")
-  if (!files.some((f) => f.startsWith("relay-")) || !content.includes("log-file test line"))
-    throw new Error("log_file did not write the expected entry")
-  console.log("log_file daily file + console tee ✓")
+  const logfmtRe = /^ts=.* level=info msg="log-file test line"$/
+  if (!files.some((f) => f.startsWith("relay-")) || !logfmtRe.test(content.trim()))
+    throw new Error(`log_file did not write a logfmt entry, got: ${content.trim()}`)
+  console.log("log_file daily file + console tee (logfmt) ✓")
 }
 console.log("chat.message callable ✓")
 
