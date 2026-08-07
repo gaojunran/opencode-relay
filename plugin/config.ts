@@ -354,9 +354,48 @@ export function resetConfig(): void {
 
 // ---------- Project registry ----------
 
-/** Explicit items take precedence; when empty, scan scan_dir for subdirectories containing .git */
+const DYNAMIC_PROJECTS_FILE = "projects.json";
+
+/** Read dynamically registered projects from state_dir/projects.json; returns [] when the file is missing or malformed */
+export function readDynamicProjects(config: RelayConfig): ProjectItem[] {
+  const file = path.join(config.paths.state_dir, DYNAMIC_PROJECTS_FILE);
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null)
+      .filter((v) => typeof v.id === "string" && typeof v.repo_path === "string")
+      .map((v) => ({
+        id: v.id as string,
+        name: typeof v.name === "string" ? (v.name as string) : (v.id as string),
+        repo_path: v.repo_path as string,
+        description: typeof v.description === "string" ? (v.description as string) : undefined,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+/** Persist the dynamic project registry to state_dir/projects.json */
+export function writeDynamicProjects(config: RelayConfig, items: ProjectItem[]): void {
+  const file = path.join(config.paths.state_dir, DYNAMIC_PROJECTS_FILE);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(items, null, 2)}\n`, "utf8");
+}
+
+/** Explicit items and dynamic registrations merged, deduped by id (explicit wins); scan scan_dir only when both are empty */
 export function getProjectRegistry(config: RelayConfig): ProjectItem[] {
-  if (config.projects.items.length > 0) return config.projects.items;
+  const merged = new Map<string, ProjectItem>();
+  for (const p of [...config.projects.items, ...readDynamicProjects(config)]) {
+    if (!merged.has(p.id)) merged.set(p.id, p);
+  }
+  if (merged.size > 0) return [...merged.values()];
   const scanDir = config.projects.scan_dir;
   if (!scanDir) return [];
   let entries: fs.Dirent[];

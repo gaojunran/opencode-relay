@@ -71,6 +71,7 @@ enabled = true
 template = "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}. Use the workdir parameter for bash, absolute paths for file operations, and never modify the main copy."
 # When the session has not switched to a project yet, inject the available project list into the system prompt to guide the agent to call switch_project
 list_projects = true
+# A fixed guide is always injected: use switch_project for projects, and register_project for repositories not yet in the list
 
 # ---------- Anti-bypass ----------
 

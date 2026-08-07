@@ -7,6 +7,9 @@ import {
   findProject,
   getProjectRegistry,
   loadConfig,
+  readDynamicProjects,
+  writeDynamicProjects,
+  type ProjectItem,
   type RelayConfig,
   type RelayLogger,
 } from "./config.js";
@@ -21,6 +24,10 @@ import {
 import { createWorktree, execGit, findWorktree, findWorktreeDirs, removeWorktree } from "./git.js";
 
 const FILE_TOOLS = new Set(["read", "write", "edit", "glob", "grep", "apply_patch"]);
+
+// Fixed guidance injected into the system prompt on every turn (stateful or not)
+const PROJECT_GUIDE =
+  "When you want to explore, analyze, or develop a project, always use switch_project. If the existing projects do not include the one you want to enter, register it first with register_project.";
 
 export default {
   id: "opencode-relay",
@@ -90,6 +97,20 @@ function buildHooks(opts: {
         },
       }),
 
+      register_project: tool({
+        description:
+          "Register a new project from any git repository path: validates it is a git repo, ensures its remotes do not duplicate an already-registered project, moves the directory into the workspace root, and registers it. Use this when the existing projects do not include the one you want to enter.",
+        args: {
+          dir: tool.schema.string().describe("Path to the git repository to register"),
+          id: tool.schema.string().optional().describe("Project ID (defaults to the directory basename)"),
+          name: tool.schema.string().optional().describe("Project name (defaults to the ID)"),
+        },
+        execute: async (args, context): Promise<ToolResult> => {
+          activeSessionID = context.sessionID;
+          return registerProject(config, log, args);
+        },
+      }),
+
       cleanup_worktrees: tool({
         description:
           "Reclaim worktrees inactive for more than stale_days (git worktree remove --force + delete matching state file). Session history stays in the database and is unaffected.",
@@ -142,6 +163,7 @@ function buildHooks(opts: {
       if (!sessionID || !config.inject.enabled) return;
       const state = readSessionState(config, sessionID);
       if (!state) {
+        output.system.push(PROJECT_GUIDE);
         if (config.inject.list_projects) {
           const projects = getProjectRegistry(config);
           if (projects.length > 0) {
@@ -157,10 +179,12 @@ function buildHooks(opts: {
         } else {
           log.debug(`[system.transform] session ${sessionID} has no state, skipped injection`);
         }
+        log.debug(`[system.transform] session ${sessionID} has no state, injected project guide`);
         return;
       }
       const text = renderTemplate(config.inject.template, state);
       output.system.push(text);
+      output.system.push(PROJECT_GUIDE);
       log.debug(
         `[system.transform] session ${sessionID} injected project ${state.project_id}, first 60 chars: ${text.slice(0, 60)}`,
       );
@@ -308,6 +332,84 @@ function switchProject(
   const file = writeSessionState(config, sessionID, state);
   log.info(`[switch_project] state written: ${file}`);
   return successResult(state);
+}
+
+function registerProject(
+  config: RelayConfig,
+  log: RelayLogger,
+  args: { dir: string; id?: string; name?: string },
+): ToolResult {
+  const dir = path.resolve(args.dir);
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+    throw new Error(`Not a directory or does not exist: ${args.dir}`);
+  }
+  try {
+    execGit(["rev-parse", "--is-inside-work-tree"], { cwd: dir }, log);
+  } catch (err) {
+    throw new Error(`Not a git repository: ${args.dir} (${err instanceof Error ? err.message : String(err)})`);
+  }
+
+  const id = args.id ?? path.basename(dir);
+  const name = args.name ?? id;
+
+  const newRemotes = collectRemoteUrls(dir, log);
+  if (newRemotes.length > 0) {
+    for (const existing of getProjectRegistry(config)) {
+      for (const url of collectRemoteUrls(existing.repo_path, log)) {
+        if (newRemotes.includes(url)) {
+          throw new Error(`Project ${id} is already registered (same remote: ${url})`);
+        }
+      }
+    }
+  }
+
+  const targetDir = path.join(config.paths.workspace_root, id);
+  if (fs.existsSync(targetDir)) {
+    throw new Error(`Target location already exists: ${targetDir}`);
+  }
+
+  fs.mkdirSync(config.paths.workspace_root, { recursive: true });
+  moveDir(dir, targetDir, log);
+
+  const entry: ProjectItem = { id, name, repo_path: targetDir };
+  writeDynamicProjects(config, [...readDynamicProjects(config).filter((p) => p.id !== id), entry]);
+  log.info(`[register_project] registered ${id}: ${targetDir} (moved from ${dir})`);
+
+  return {
+    title: "Project registered",
+    output: JSON.stringify({ id, name, repo_path: targetDir }, null, 2),
+  };
+}
+
+/** Collect all remote URLs of a git repo (empty when the repo has no remotes or cannot be inspected) */
+function collectRemoteUrls(repoDir: string, log: RelayLogger): string[] {
+  if (!fs.existsSync(repoDir)) return [];
+  try {
+    const names = execGit(["remote"], { cwd: repoDir }, log);
+    if (!names.trim()) return [];
+    return names
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((name) => execGit(["remote", "get-url", name], { cwd: repoDir }, log).trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** Move a directory; on cross-device EXDEV, fall back to copy + delete */
+function moveDir(src: string, dest: string, log: RelayLogger): void {
+  try {
+    fs.renameSync(src, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EXDEV") {
+      log.debug(`[register_project] EXDEV on rename, copying instead: ${src} -> ${dest}`);
+      fs.cpSync(src, dest, { recursive: true });
+      fs.rmSync(src, { recursive: true, force: true });
+      return;
+    }
+    throw err;
+  }
 }
 
 function successResult(state: SessionState): ToolResult {

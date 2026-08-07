@@ -179,8 +179,9 @@ const sysOut2: { system: string[] } = { system: [] }
 await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_other", model: {} as any }, sysOut2)
 console.log("\n== system.transform no-project (list guidance) ==")
 console.log(sysOut2.system[0])
-if (!sysOut2.system[0].includes("projA")) throw new Error("no-project session did not get the project list!")
-if (!sysOut2.system[0].includes("switch_project")) throw new Error("list injection missing switch guidance!")
+const sysOut2Text = sysOut2.system.join("\n")
+if (!sysOut2Text.includes("projA")) throw new Error("no-project session did not get the project list!")
+if (!sysOut2Text.includes("switch_project")) throw new Error("list injection missing switch guidance!")
 console.log("no-project session got project list + switch guidance ✓")
 
 // 8. leave_project: back to no-project state, guard allows again, system.transform shows list again, worktree kept and reusable
@@ -197,13 +198,64 @@ console.log("after leave, bash /etc → allowed (back to no-state) ✓")
 // 8b. After leaving, system.transform restores list guidance
 const sysOut3: { system: string[] } = { system: [] }
 await hooks2["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz", model: {} as any }, sysOut3)
-if (!sysOut3.system[0].includes("switch_project")) throw new Error("after leave, list guidance not restored!")
+if (!sysOut3.system.join("\n").includes("switch_project")) throw new Error("after leave, list guidance not restored!")
 console.log("after leave, system.transform restores list guidance ✓")
 // 8c. Switching again in the same session reuses the original worktree (state missing but dir registered)
 const sw3 = await hooks2.tool!.switch_project!.execute({ project_id: "projA" }, { sessionID: "ses_abc123xyz", directory: home } as any)
 const sw3Obj = typeof sw3 === "string" ? JSON.parse(sw3) : JSON.parse(sw3.output)
 if (sw3Obj.workdir !== workdir) throw new Error("after leave, switch did not reuse the original worktree!")
 console.log("after leave, switch → reused original worktree ✓")
+
+// 9. register_project
+console.log("\n== register_project ==")
+const remoteRepo = path.join(R, "remote.git")
+execFileSync("git", ["init", "--bare", "-q", remoteRepo])
+const extRepo = path.join(R, "ext-repo")
+fs.mkdirSync(extRepo, { recursive: true })
+execFileSync("git", ["init", "-q"], { cwd: extRepo })
+execFileSync("git", ["config", "user.email", "t@t"], { cwd: extRepo })
+execFileSync("git", ["config", "user.name", "t"], { cwd: extRepo })
+fs.writeFileSync(path.join(extRepo, "README.md"), "hello ext\n")
+execFileSync("git", ["add", "."], { cwd: extRepo })
+execFileSync("git", ["commit", "-qm", "init"], { cwd: extRepo })
+execFileSync("git", ["branch", "-M", "main"], { cwd: extRepo })
+execFileSync("git", ["remote", "add", "origin", remoteRepo], { cwd: extRepo })
+execFileSync("git", ["push", "-q", "-u", "origin", "main"], { cwd: extRepo })
+
+// 9a. register an external repo: moved into workspace_root, correct id returned
+const reg = await hooks2.tool!.register_project!.execute({ dir: extRepo }, { sessionID: "ses_abc123xyz", directory: home } as any)
+const regOut = typeof reg === "string" ? JSON.parse(reg) : JSON.parse(reg.output)
+console.log(JSON.stringify(regOut, null, 2))
+if (regOut.id !== "ext-repo") throw new Error("register_project returned wrong id")
+if (regOut.repo_path !== path.join(workspaceRoot, "ext-repo")) throw new Error("register_project did not move into workspace_root")
+if (!fs.existsSync(regOut.repo_path)) throw new Error("registered repo not found at target")
+if (fs.existsSync(extRepo)) throw new Error("source dir not moved after registration")
+console.log("external repo registered and moved into workspace_root ✓")
+
+// 9b. a clone sharing the same remote must be rejected as a duplicate
+const cloneRepo = path.join(R, "clone-repo")
+execFileSync("git", ["clone", "-q", remoteRepo, cloneRepo])
+let dupMsg = ""
+try {
+  await hooks2.tool!.register_project!.execute({ dir: cloneRepo }, { sessionID: "ses_abc123xyz", directory: home } as any)
+} catch (e) {
+  dupMsg = (e as Error).message
+}
+if (!dupMsg.includes("already registered")) throw new Error("duplicate remote registration was not rejected: " + dupMsg)
+console.log("duplicate remote registration rejected ✓: " + dupMsg.slice(0, 70))
+
+// 9c. PROJECT_GUIDE injection: both no-state and stateful outputs carry the guide
+const sysOut4: { system: string[] } = { system: [] }
+await hooks2["experimental.chat.system.transform"]!({ sessionID: "ses_fresh", model: {} as any }, sysOut4)
+const guideNoState = sysOut4.system.join("\n")
+if (!guideNoState.includes("always use switch_project")) throw new Error("no-state injection missing switch guidance!")
+if (!guideNoState.includes("register_project")) throw new Error("no-state injection missing register_project guidance!")
+console.log("no-state injection contains project guide ✓")
+const sysOut5: { system: string[] } = { system: [] }
+await hooks2["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz", model: {} as any }, sysOut5)
+const guideStateful = sysOut5.system.join("\n")
+if (!guideStateful.includes("always use switch_project") || !guideStateful.includes("register_project")) throw new Error("stateful injection missing project guide!")
+console.log("stateful injection contains project guide ✓")
 
 console.log("\n✅ P1 all verifications passed")
 // Cleanup
