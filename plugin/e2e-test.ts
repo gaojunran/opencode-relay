@@ -102,16 +102,46 @@ try {
 }
 // 5c. read 绝对路径越界
 try {
-  await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c3" }, { args: { filepath: "/etc/passwd" } })
+  await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c3" }, { args: { filePath: "/etc/passwd" } })
   throw new Error("read 越界未被拦截!")
 } catch (e) {
   console.log("read /etc/passwd → 拒绝 ✓")
 }
+// 5c2. write 绝对路径越界（参数名 filePath 大写 P）
+try {
+  await hooks["tool.execute.before"]!({ tool: "write", sessionID: "ses_abc123xyz", callID: "c9" }, { args: { filePath: "/etc/pwned.txt", content: "x" } })
+  throw new Error("write 越界未被拦截!")
+} catch (e) {
+  console.log("write /etc/pwned.txt → 拒绝 ✓")
+}
+// 5c3. edit 相对路径越界（解析到 instanceDir=home，主副本在 home 下）
+try {
+  await hooks["tool.execute.before"]!({ tool: "edit", sessionID: "ses_abc123xyz", callID: "c10" }, { args: { filePath: path.join(workspaceRoot, "projA", "README.md") } })
+  throw new Error("edit 主副本越界未被拦截!")
+} catch (e) {
+  console.log("edit 主副本路径 → 拒绝 ✓")
+}
+// 5c4. apply_patch 越界（patchText 内 Update File 指向 home 外）
+try {
+  await hooks["tool.execute.before"]!({ tool: "apply_patch", sessionID: "ses_abc123xyz", callID: "c11" }, { args: { patchText: "*** Begin Patch\n*** Update File: /etc/passwd\n@@ context\n*** End Patch" } })
+  throw new Error("apply_patch 越界未被拦截!")
+} catch (e) {
+  console.log("apply_patch /etc/passwd → 拒绝 ✓")
+}
+// 5c5. grep 搜索目录越界
+try {
+  await hooks["tool.execute.before"]!({ tool: "grep", sessionID: "ses_abc123xyz", callID: "c12" }, { args: { pattern: "x", path: "/etc" } })
+  throw new Error("grep path 越界未被拦截!")
+} catch (e) {
+  console.log("grep path=/etc → 拒绝 ✓")
+}
 // 5d. 工作目录内放行
 await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c4" }, { args: { command: "ls", workdir } })
 console.log("bash workdir=worktree → 放行 ✓")
-await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c5" }, { args: { filepath: path.join(workdir, "README.md") } })
+await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c5" }, { args: { filePath: path.join(workdir, "README.md") } })
 console.log("read worktree 内绝对路径 → 放行 ✓")
+await hooks["tool.execute.before"]!({ tool: "write", sessionID: "ses_abc123xyz", callID: "c13" }, { args: { filePath: path.join(workdir, "new.txt"), content: "x" } })
+console.log("write worktree 内绝对路径 → 放行 ✓")
 
 // 5e. deny_paths 追加层：worktree 内但命中 deny 的路径被拒绝
 // 5f. worktree 内非 deny 路径放行（验证 deny 不误伤）
@@ -124,13 +154,13 @@ resetConfig()
 const hooks2 = await plugin.server({ directory: home, project: { id: "relay-test", directory: home } } as any)
 // 5e: worktree 内但命中 deny → 拒绝
 try {
-  await hooks2["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c7" }, { args: { filepath: path.join(denyDir, "x.txt") } })
+  await hooks2["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c7" }, { args: { filePath: path.join(denyDir, "x.txt") } })
   throw new Error("deny 未生效")
 } catch (e) {
   console.log(`read worktree 内 deny 子目录 → 拒绝 ✓: ${(e as Error).message.slice(0, 55)}`)
 }
 // 5f: worktree 内非 deny → 放行
-await hooks2["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c8" }, { args: { filepath: path.join(workdir, "README.md") } })
+await hooks2["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c8" }, { args: { filePath: path.join(workdir, "README.md") } })
 console.log("read worktree 内非 deny → 放行 ✓")
 
 // 6. system.transform 注入

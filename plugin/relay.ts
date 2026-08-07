@@ -19,7 +19,7 @@ import {
 } from "./state.js";
 import { createWorktree, execGit, findWorktree, findWorktreeDirs, removeWorktree } from "./git.js";
 
-const FILE_TOOLS = new Set(["read", "write", "edit", "glob", "grep"]);
+const FILE_TOOLS = new Set(["read", "write", "edit", "glob", "grep", "apply_patch"]);
 
 export default {
   id: "opencode-relay",
@@ -322,19 +322,19 @@ function guardToolCall(opts: {
       violation = `bash workdir 命中 deny 路径: ${wd}`;
     }
   } else if (FILE_TOOLS.has(toolName)) {
-    const raw =
-      typeof args.filepath === "string"
-        ? args.filepath
-        : typeof args.pattern === "string"
-          ? args.pattern
-          : undefined;
-    if (raw) {
+    // 参数名按 opencode 1.18.11 实证：read/write/edit=filePath；glob/grep=path（搜索目录）；
+    // apply_patch=patchText（*** Add/Delete/Update/Move 行内路径，可多个）
+    const candidates = fileToolPaths(toolName, args);
+    for (const raw of candidates) {
       const candidate = path.resolve(instanceDir, raw);
       log.debug(`[guard] ${toolName} 路径解析: ${raw} -> ${candidate}`);
-      if (path.isAbsolute(raw) && !isInside(candidate, allowed)) {
+      if (!isInside(candidate, allowed)) {
         violation = `${toolName} 路径超出当前项目工作目录: ${raw}（允许: ${allowed}）`;
-      } else if (path.isAbsolute(raw) && matchesDeny(config, candidate, log)) {
+        break;
+      }
+      if (matchesDeny(config, candidate, log)) {
         violation = `${toolName} 路径命中 deny 路径: ${raw}`;
+        break;
       }
     }
   }
@@ -350,6 +350,34 @@ function guardToolCall(opts: {
     );
     throw new Error(`${violation}。请先调用 switch_project 切换到目标项目后再操作`);
   }
+}
+
+/** 提取文件工具的参数路径列表（参数名按 opencode 1.18.11 实证） */
+function fileToolPaths(toolName: string, args: Record<string, unknown>): string[] {
+  if (toolName === "apply_patch") {
+    return typeof args.patchText === "string" ? extractPatchPaths(args.patchText) : [];
+  }
+  if (toolName === "glob" || toolName === "grep") {
+    // glob/grep 搜索目录参数是 path；缺省时搜索根为会话目录（home），无显式路径可校验
+    return typeof args.path === "string" ? [args.path] : [];
+  }
+  return typeof args.filePath === "string" ? [args.filePath] : [];
+}
+
+/** 从 apply_patch 的 patchText 提取所有目标路径（*** Add/Delete/Update File / Move to 行） */
+function extractPatchPaths(patchText: string): string[] {
+  const paths: string[] = [];
+  for (const line of patchText.split("\n")) {
+    const trimmed = line.trim();
+    for (const marker of ["*** Add File:", "*** Delete File:", "*** Update File:", "*** Move to:"]) {
+      if (trimmed.startsWith(marker)) {
+        const p = trimmed.slice(marker.length).trim();
+        if (p) paths.push(p);
+        break;
+      }
+    }
+  }
+  return paths;
 }
 
 /** 判断候选路径是否命中 guard.deny_paths（allow_paths 优先放行） */

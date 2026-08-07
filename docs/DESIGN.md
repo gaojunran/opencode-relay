@@ -217,22 +217,24 @@ bash 工具请用 workdir="{workdir}" 参数，文件操作请用绝对路径。
 ### 4.5 tool.execute.before hook（防绕过硬拦截）
 
 ```ts
-hook: { tool: { execute: { before: async ({tool, input, sessionID}, output) => {
-  const cur = await readCurrent(sessionID);
-  if (!cur) return;                       // 未切项目，不限制
-  const allowed = cur.workdir;
+hook: { tool: { execute: { before: async ({tool, sessionID}, output) => {
+  const state = readSessionState(sessionID);
+  if (!state) return;                     // 未切项目，不限制
+  const allowed = state.workdir;
   if (tool === "bash") {
-    const wd = input.workdir ?? instanceDir;
+    const wd = input.workdir ? resolve(instanceDir, input.workdir) : instanceDir;
     if (!isInside(wd, allowed)) {
       if (guard.reject_on_violation) output.error = "工作目录超出当前项目，请先 switch_project";
       else log.warn("bash workdir 越界", { wd, allowed });
     }
   }
-  if (["read","write","edit","glob","grep"].includes(tool)) {
-    const p = input.filepath ?? input.pattern;
-    if (p && isAbsolute(p) && !isInside(p, allowed)) {
-      if (guard.reject_on_violation) output.error = "路径超出当前项目";
-      else log.warn("路径越界", { p, allowed });
+  if (["read","write","edit","glob","grep","apply_patch"].includes(tool)) {
+    for (const p of fileToolPaths(tool, args)) {   // 参数名按 opencode 实证：filePath / path / patchText
+      const c = resolve(instanceDir, p);           // 相对路径也解析后检查（落在 home=主副本即拒绝）
+      if (!isInside(c, allowed)) {
+        if (guard.reject_on_violation) output.error = "路径超出当前项目";
+        else log.warn("路径越界", { p, allowed });
+      }
     }
   }
 } } } }
