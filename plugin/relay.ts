@@ -22,7 +22,7 @@ import {
   writeSessionState,
   type SessionState,
 } from "./state.js";
-import { createWorktree, execGit, findWorktree, findWorktreeDirs, removeWorktree } from "./git.js";
+import { createWorktree, currentBranch, execGit, findWorktree, findWorktreeDirs, removeWorktree } from "./git.js";
 
 const FILE_TOOLS = new Set(["read", "write", "edit", "glob", "grep", "apply_patch"]);
 
@@ -323,7 +323,10 @@ function handleEndOfSession(
       return;
     }
     const remote = config.worktree.remote;
-    const branch = state.worktree_branch;
+    // Prefer the branch currently checked out in the worktree (the agent may have renamed it,
+    // e.g. `git branch -m opencode/sesXXX feat/xxx`, or created a new semantic branch); fall
+    // back to the branch recorded at switch time.
+    const branch = currentBranch(state.workdir, log) ?? state.worktree_branch;
     log.debug("dispose", `push branch: remote=${remote}, branch=${branch}`);
     try {
       execGit(["push", "-u", remote, branch], { cwd: state.workdir });

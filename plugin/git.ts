@@ -51,6 +51,16 @@ export function createWorktree(
   execGit(["reset", "--hard", "HEAD"], { cwd: opts.worktreeDir }, logger);
 }
 
+/** Current branch checked out in a worktree (empty string when detached); null when the dir is not a git worktree */
+export function currentBranch(workdir: string, logger?: RelayLogger): string | null {
+  try {
+    const out = execGit(["branch", "--show-current"], { cwd: workdir }, logger);
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Parse `git worktree list --porcelain` output */
 export function listWorktrees(repoPath: string): WorktreeEntry[] {
   const out = execGit(["worktree", "list", "--porcelain"], { cwd: repoPath });

@@ -124,6 +124,37 @@ include_description = false
     fail("dispose hook", String(e));
   }
 
+  // ---- 4. Push strategy: after renaming the branch inside the worktree, dispose pushes the CURRENT branch ----
+  const bareDir = path.join(T, "bare.git");
+  execFileSync("git", ["init", "--bare", "-q", bareDir]);
+  execFileSync("git", ["remote", "add", "origin", bareDir], { cwd: repoDir });
+  execFileSync("git", ["push", "-q", "-u", "origin", "main"], { cwd: repoDir });
+
+  const conf2 = conf.replace('end_of_session = "cleanup"', 'end_of_session = "push"');
+  fs.writeFileSync(path.join(configDir, "config2.toml"), conf2);
+  process.env.OPENCODE_RELAY_CONFIG = path.join(configDir, "config2.toml");
+  resetConfig();
+  const hooks2 = await plugin.server({ directory: home } as never);
+  const ctxC = { sessionID: "ses_ccc333", directory: home } as never;
+  const r3 = await hooks2.tool!.switch_project.execute({ project_id: "projA" }, ctxC);
+  if (!JSON.stringify(r3).includes("projA")) return fail("session C switch_project", String(r3));
+  const s3 = readSessionState(loadConfig(), "ses_ccc333");
+  if (!s3) return fail("session C state", "missing");
+  ok(`session C switched (${s3.workdir})`);
+
+  const oldBranch = s3.worktree_branch;
+  const newBranch = "feat/add-auth";
+  execFileSync("git", ["branch", "-m", newBranch], { cwd: s3.workdir });
+  ok(`branch renamed in worktree (${oldBranch} -> ${newBranch})`);
+
+  await hooks2.dispose?.();
+  const remoteBranches = execFileSync("git", ["ls-remote", "--heads", bareDir], { encoding: "utf8" });
+  if (remoteBranches.includes(`refs/heads/${newBranch}`) && !remoteBranches.includes(`refs/heads/${oldBranch}`)) {
+    ok(`dispose push pushed the renamed branch, not the recorded one (${newBranch})`);
+  } else {
+    fail("dispose push current branch", `remote has: ${remoteBranches.trim() || "(empty)"}`);
+  }
+
   if (failed > 0) {
     console.log(`\n✗ P3 verification failed ${failed} items`);
     process.exitCode = 1;
