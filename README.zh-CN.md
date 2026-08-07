@@ -4,21 +4,25 @@
 
 一个 [opencode](https://opencode.ai) 插件，把一个常驻会话变成多项目开发中心。Agent 停留在一个"home"会话中，通过显式的 `switch_project` 工具切换项目。每次切换都会为当前会话创建一个独立的 git worktree，多个会话可以零锁并行工作在同一项目上。
 
-> **当前状态**：活跃开发中。`list_project`、`switch_project`、worktree 生命周期、防绕过拦截与清理已实现并通过测试；cc-connect（企微桥接）集成已规划。
+> **当前状态**：活跃开发中。`list_project`、`switch_project`、`register_project`、`leave_project`、worktree 生命周期、防绕过拦截、智能路径改写、cd 逃逸拦截与清理已实现并通过测试；cc-connect（企微桥接）集成已规划。
 
 ## 为什么
 
 - **一个会话，多个项目**：不用为每个项目开新会话、也不用折腾 `/dir`。Agent 调用 `switch_project` 就能拿到真实的工作目录。
 - **多会话零冲突**：每次切换创建独立的 git worktree，分支唯一（`opencode/<sessionID>`）。无共享工作区、无锁文件。`~/workspace/<project>` 主副本永远干净。
-- **设计上防误操作**：`list_project` 从不暴露项目路径，Agent 无法无意中写主副本；`tool.execute.before` 硬拦截所有逃逸当前 worktree 的 bash/文件操作（yolo 模式下依然生效）。
+- **设计上防误操作**：`list_project` 从不暴露项目路径，Agent 无法无意中写主副本；`tool.execute.before` 硬拦截所有逃逸当前 worktree 的 bash/文件操作（yolo 模式下依然生效），包括 bash 命令内的 `cd` 目标。
+- **宽容而非只会拦截**：相对路径按项目 worktree 解析（而非会话目录）并自动改写为绝对路径，Agent 可以自然地工作。
 - **IM 友好**：为对接 cc-connect 设计——cc-connect 把企微对话桥接为固定 home 的 opencode 会话（`work_dir = home`、`mode = "yolo"`），项目路由完全由本插件承担。
 
 ## 功能
 
 - `list_project` — 只返回 `{id, name}`（可选 `description`）；仓库路径对 Agent 不可见。
 - `switch_project({project_id})` — 无条件创建（或复用）专属 git worktree，返回其路径作为新工作目录。
+- `register_project({dir, id?, name?})` — 从任意 git 仓库路径注册新项目：校验是 git 仓库、拒绝重复 remote（说明已注册）、把目录移动进 workspace root，并持久化到动态注册表。
+- `leave_project()` — 退出当前项目回到未绑定状态；worktree 保留，再次切换同一项目时复用。
 - `cleanup_worktrees({dry_run})` — 回收超过 `stale_days`（默认 7 天）不活跃的 worktree；数据库中的会话历史不受影响。
-- 每轮上下文注入（`experimental.chat.system.transform`）— 提醒 Agent 当前项目、工作目录与分支。
+- 每轮上下文注入（`experimental.chat.system.transform`）— 未切换前注入项目清单并引导调用 `switch_project`/`register_project`；切换后注入当前项目、工作目录与分支。
+- 智能路径改写（`tool.execute.before`）— 相对路径按项目 worktree 解析并改写为绝对路径；bash 未显式 `workdir` 时默认填 worktree；逃逸 worktree 的 `cd` 目标（包括裸 `cd` 和 `cd ..`）带提示拒绝。
 - 硬拦截（`tool.execute.before`）— 拒绝超出当前 worktree 的 bash `workdir` 或文件路径（与 yolo 模式无关）。
 - 会话结束策略（`dispose`）— `keep`（默认）/ `push` 到配置的 remote / `cleanup` 删除 worktree。
 - opt-out 短路 — 会话目录不在 `[general].home`（默认 `$HOME`）内时插件拒绝加载。
@@ -39,8 +43,10 @@ opencode run（cc-connect spawn 的 in-process server）
    └─ opencode-relay（本插件）
         ├─ list_project()             只有 id/name，无路径
         ├─ switch_project(id)         无条件 per-session worktree
-        ├─ system.transform           每轮注入当前项目
-        ├─ tool.execute.before        防逃逸硬拦截
+        ├─ register_project(dir)      注册新 git 项目进 workspace
+        ├─ leave_project()            退出项目，回到未绑定状态
+        ├─ system.transform           每轮注入项目清单 / 当前项目
+        ├─ tool.execute.before        硬拦截 + 智能路径改写 + cd 拦截
         ├─ dispose                    会话结束：keep / push / cleanup
         └─ 配置: ~/.config/opencode-relay/config.toml
             状态: ~/.opencode/state/<sessionID>.json

@@ -4,21 +4,25 @@
 
 An [opencode](https://opencode.ai) plugin that turns a single persistent session into a multi-project development hub. The agent stays in one "home" session and switches between projects through an explicit `switch_project` tool. Every switch creates a dedicated git worktree per session, so multiple sessions can work on the same project in parallel without any locking.
 
-> **Current status**: actively developed. `list_project`, `switch_project`, worktree lifecycle, guard interception and cleanup are implemented and tested; cc-connect (WeCom/WeChat Work bridge) integration is planned.
+> **Current status**: actively developed. `list_project`, `switch_project`, `register_project`, `leave_project`, worktree lifecycle, guard interception, smart path rewriting, `cd` escape blocking and cleanup are implemented and tested; cc-connect (WeCom/WeChat Work bridge) integration is planned.
 
 ## Why
 
 - **One session, many projects**: no more creating a new session per project or juggling `/dir`. The agent calls `switch_project` and gets a real working directory back.
 - **Parallel sessions, zero conflicts**: each switch creates an independent git worktree on a unique branch (`opencode/<sessionID>`). No shared working tree, no lock files. The main copy in `~/workspace/<project>` stays clean forever.
-- **Agent-proof by design**: project paths are never exposed through `list_project`, so the agent cannot accidentally write to the main copy. A `tool.execute.before` hook hard-rejects any file/bash call that escapes the current worktree.
+- **Agent-proof by design**: project paths are never exposed through `list_project`, so the agent cannot accidentally write to the main copy. A `tool.execute.before` hook hard-rejects any file/bash call that escapes the current worktree — including `cd` targets inside a bash command.
+- **Forgiving, not just blocking**: relative paths are resolved against the project worktree (not the session directory) and rewritten to absolute paths automatically, so the agent can work naturally.
 - **IM-friendly**: designed to sit behind cc-connect, which bridges WeCom conversations into fixed-home opencode sessions (`work_dir = home`, `mode = "yolo"`). The plugin does the project routing.
 
 ## Features
 
 - `list_project` — returns only `{id, name}` (optionally `description`); repository paths stay hidden from the agent.
 - `switch_project({project_id})` — unconditionally creates (or reuses) a dedicated git worktree and returns its path as the new working directory.
+- `register_project({dir, id?, name?})` — registers a new project from any git repository path: validates it is a git repo, rejects duplicate remotes (already registered), moves the directory into the workspace root, and persists it in a dynamic registry.
+- `leave_project()` — exits the current project and returns to the unbound state; the worktree is kept, so switching back to the same project reuses it.
 - `cleanup_worktrees({dry_run})` — reaps worktrees inactive for `stale_days` (default 7); session history in the database is unaffected.
-- Per-round context injection via `experimental.chat.system.transform` — reminds the agent of the current project, workdir and branch.
+- Per-round context injection via `experimental.chat.system.transform` — before switching, injects the project list and a guide to call `switch_project`/`register_project`; after switching, injects the current project, workdir and branch.
+- Smart path rewriting in `tool.execute.before` — relative paths resolve against the project worktree and are rewritten to absolute; bash without an explicit `workdir` defaults to the worktree; `cd` targets that escape the worktree (including bare `cd` and `cd ..`) are rejected with actionable messages.
 - Hard guard via `tool.execute.before` — rejects bash `workdir` or file paths outside the current worktree (yolo-mode independent).
 - End-of-session strategy via `dispose` — `keep` (default), `push` to a configured remote, or `cleanup` the worktree.
 - Opt-out short-circuit — the plugin refuses to load when the session directory is outside `[general].home` (defaults to `$HOME`).
@@ -39,8 +43,10 @@ opencode run (in-process server, spawned by cc-connect)
    └─ opencode-relay (this plugin)
         ├─ list_project()             ids/names only, no paths
         ├─ switch_project(id)         unconditional per-session worktree
-        ├─ system.transform           inject current project each round
-        ├─ tool.execute.before        hard guard against escaping the worktree
+        ├─ register_project(dir)      register a new git project into workspace
+        ├─ leave_project()            exit project, back to unbound state
+        ├─ system.transform           inject project list / current project each round
+        ├─ tool.execute.before        hard guard + smart path rewriting + cd blocking
         ├─ dispose                    end-of-session: keep / push / cleanup
         └─ config:  ~/.config/opencode-relay/config.toml
              state: ~/.opencode/state/<sessionID>.json
