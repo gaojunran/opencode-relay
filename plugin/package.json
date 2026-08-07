@@ -1,10 +1,13 @@
 {
   "name": "opencode-relay-plugin",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "opencode plugin: project workspaces via isolated git worktrees, with a guard that keeps the agent inside the project directory",
   "type": "module",
   "license": "MIT",
-  "files": ["dist", "config.example.toml"],
+  "files": [
+    "dist",
+    "config.example.toml"
+  ],
   "exports": {
     "./server": {
       "import": "./dist/relay.js",
