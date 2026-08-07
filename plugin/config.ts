@@ -242,10 +242,15 @@ function buildConfig(raw: TomlTable): RelayConfig {
   const permissions = asTable(raw.permissions);
   const list = asTable(raw.list);
 
+  // The main copy lives under workspace_root; it is a clean baseline that the agent must never
+  // touch directly (worktrees are the only legal working copies). Denying it must hold in every
+  // session state, so it is baked into the default deny set below (users may still allow_paths it).
+  const workspaceRoot = expandHome(asString(paths.workspace_root, path.join(home, "workspace")));
+  const defaultDeny = [`${workspaceRoot}/**`];
+
   const items: ProjectItem[] = [];
   for (const t of asArray(projects.items).map((v) => asTable(v))) {
-    const id = asString(t.id, "");
-    if (!id) continue;
+    const id = asString(t.id, "");    if (!id) continue;
     const repoPath = asString(t.repo_path, "");
     if (!repoPath) {
       console.warn(`[opencode-relay] project "${id}" is missing repo_path, ignored from registry`);
@@ -279,7 +284,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
       log_level: asString(general.log_level, "info") as LogLevel,
     },
     paths: {
-      workspace_root: expandHome(asString(paths.workspace_root, path.join(home, "workspace"))),
+      workspace_root: workspaceRoot,
       worktree_root: expandHome(asString(paths.worktree_root, path.join(home, ".opencode", "worktrees"))),
       state_dir: expandHome(asString(paths.state_dir, path.join(home, ".opencode", "state"))),
     },
@@ -303,7 +308,12 @@ function buildConfig(raw: TomlTable): RelayConfig {
     guard: {
       enabled: asBoolean(guard.enabled, true),
       reject_on_violation: asBoolean(guard.reject_on_violation, true),
-      deny_paths: asArray(guard.deny_paths).filter((v): v is string => typeof v === "string"),
+      // The main copy is denied by default in every session state (the core promise of the
+      // plugin); user patterns are appended. allow_paths take precedence via matchesDeny.
+      deny_paths: [
+        ...defaultDeny,
+        ...asArray(guard.deny_paths).filter((v): v is string => typeof v === "string"),
+      ],
       allow_paths: asArray(guard.allow_paths).filter((v): v is string => typeof v === "string"),
       // Directories where the guard does not enforce the worktree boundary (e.g. temp dirs).
       // Defaults to ["/tmp"] when the key is absent; an explicit empty array disables this.

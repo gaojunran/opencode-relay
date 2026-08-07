@@ -80,7 +80,10 @@ list_projects = true
 enabled = true
 # Reject execution when outside the current project working dir (false: log only, do not intercept)
 reject_on_violation = true
-# Additional deny path patterns (glob), appended to the default deny set (workspace_root fully + outside the working dir)
+# Additional deny path patterns (glob), appended to the default deny set.
+# The default deny set always contains workspace_root/** (the main copy), in every session
+# state: even before a project is switched, the agent may work freely in home but must not
+# touch the main copies directly.
 deny_paths = [
   # "/home/nebula/private/**",
 ]

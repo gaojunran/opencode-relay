@@ -218,6 +218,37 @@ console.log("write /tmp file (allow_dirs) → allowed ✓")
 await hooks3["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c20" }, { args: { command: "cd /tmp && ls", workdir } })
 console.log("bash cd /tmp (allow_dirs) → allowed ✓")
 
+// 5h. Stateless session (no project switched): free in home, but the main copy is still denied.
+// The default deny set (workspace_root/**) must apply even without a session state.
+const statelessSid = "ses_fresh_nostate"
+// bash workdir pointing at the main copy → rejected
+try {
+  await hooks["tool.execute.before"]!({ tool: "bash", sessionID: statelessSid, callID: "c21" }, { args: { command: "ls", workdir: repoPath } })
+  throw new Error("stateless bash workdir into main copy not intercepted!")
+} catch (e) {
+  console.log("stateless bash workdir=main copy → rejected ✓: " + (e as Error).message.slice(0, 60))
+}
+// read a file in the main copy → rejected
+try {
+  await hooks["tool.execute.before"]!({ tool: "read", sessionID: statelessSid, callID: "c22" }, { args: { filePath: path.join(repoPath, "README.md") } })
+  throw new Error("stateless read of main copy not intercepted!")
+} catch (e) {
+  console.log("stateless read main copy → rejected ✓: " + (e as Error).message.slice(0, 60))
+}
+// write into the main copy → rejected
+try {
+  await hooks["tool.execute.before"]!({ tool: "write", sessionID: statelessSid, callID: "c23" }, { args: { filePath: path.join(repoPath, "pwn.txt"), content: "x" } })
+  throw new Error("stateless write into main copy not intercepted!")
+} catch (e) {
+  console.log("stateless write main copy → rejected ✓: " + (e as Error).message.slice(0, 60))
+}
+// free in home: bash workdir anywhere in home (outside the main copy) → allowed
+await hooks["tool.execute.before"]!({ tool: "bash", sessionID: statelessSid, callID: "c24" }, { args: { command: "ls", workdir: home } })
+console.log("stateless bash workdir=home → allowed ✓")
+// read a home file outside the main copy → allowed
+await hooks["tool.execute.before"]!({ tool: "read", sessionID: statelessSid, callID: "c25" }, { args: { filePath: path.join(home, "notes.txt") } })
+console.log("stateless read home file → allowed ✓")
+
 // 6. system.transform injection
 const sysOut: { system: string[] } = { system: [] }
 await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_abc123xyz", model: {} as any }, sysOut)

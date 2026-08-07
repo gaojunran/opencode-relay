@@ -194,7 +194,10 @@ function buildHooks(opts: {
       );
       const state = readSessionState(config, sessionID);
       if (!state) {
-        log.debug(`[guard] session ${sessionID} has no state, skipping interception`);
+        // No project switched yet: the agent is free in home, but the deny set (main copy by
+        // default) still applies. Only the worktree boundary check is skipped, because there
+        // is no worktree to bound against (fix: previously this skipped all interception).
+        guardDenyOnly({ config, log, instanceDir, toolName, args: output.args ?? {} });
         return;
       }
       guardToolCall({ config, log, instanceDir, toolName, args: output.args ?? {}, state });
@@ -605,6 +608,82 @@ function extractPatchPaths(patchText: string): string[] {
     }
   }
   return paths;
+}
+
+/**
+ * Stateless guard: no project is switched yet, so there is no worktree boundary to enforce.
+ * Only the deny set (main copy by default + user patterns) applies: the agent may work freely
+ * in home, but must not touch the main copy directly.
+ */
+function guardDenyOnly(opts: {
+  config: RelayConfig;
+  log: RelayLogger;
+  instanceDir: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}): void {
+  const { config, log, instanceDir, toolName, args } = opts;
+
+  let violation: string | null = null;
+
+  if (toolName === "bash") {
+    const rawWorkdir = typeof args.workdir === "string" ? args.workdir : undefined;
+    if (rawWorkdir) {
+      const wd = path.resolve(instanceDir, rawWorkdir);
+      log.debug(`[guard] stateless bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
+      if (matchesDeny(config, wd, log)) {
+        violation = `bash workdir matches a deny path: ${wd}`;
+      }
+    }
+    if (!violation && typeof args.command === "string") {
+      const cdViolation = checkCdDeny(args.command, instanceDir, config, log);
+      if (cdViolation) violation = cdViolation;
+    }
+  } else if (FILE_TOOLS.has(toolName)) {
+    const candidates = fileToolPaths(toolName, args);
+    for (const raw of candidates) {
+      const candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(instanceDir, raw);
+      log.debug(`[guard] stateless ${toolName} path resolved: ${raw} -> ${candidate}`);
+      if (matchesDeny(config, candidate, log)) {
+        violation = `${toolName} path matches a deny path: ${raw}`;
+        break;
+      }
+    }
+  }
+
+  if (!violation) {
+    log.debug(`[guard] stateless allowed: ${toolName} (no deny match)`);
+    return;
+  }
+  log.warn(`[guard] stateless: ${violation}`);
+  if (config.guard.enabled && config.guard.reject_on_violation) {
+    log.debug(
+      `[guard] stateless rejecting execution (reject_on_violation=${config.guard.reject_on_violation}, enabled=${config.guard.enabled})`,
+    );
+    throw new Error(`${violation}. Call switch_project to switch to the target project first`);
+  }
+}
+
+/**
+ * Check a bash command for cd targets that hit the deny set (stateless variant: bare cd back to
+ * home is legal, because home is the free zone; only deny hits are violations).
+ */
+function checkCdDeny(command: string, instanceDir: string, config: RelayConfig, log: RelayLogger): string | null {
+  const cdRe = /\bcd(?:\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|`]+)))?/g;
+  let m: RegExpExecArray | null;
+  while ((m = cdRe.exec(command)) !== null) {
+    const target = m[1] ?? m[2] ?? m[3];
+    if (!target) {
+      log.debug(`[guard] stateless bash bare cd (returns home), allowed`);
+      continue;
+    }
+    const candidate = path.isAbsolute(target) ? path.resolve(target) : path.resolve(instanceDir, target);
+    log.debug(`[guard] stateless bash cd target resolved: ${target} -> ${candidate}`);
+    if (matchesDeny(config, candidate, log)) {
+      return `bash cd target matches a deny path: ${target} -> ${candidate}`;
+    }
+  }
+  return null;
 }
 
 /** Whether a candidate path hits guard.deny_paths (allow_paths take precedence) */

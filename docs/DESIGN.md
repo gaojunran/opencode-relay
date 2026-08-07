@@ -336,13 +336,13 @@ Agent 不是恶意攻击者，而是"会犯错、可能被提示误导"的协作
 ### 5.2 三层防线（从内到外）
 
 1. **提示词约束**（最弱）：system.transform 每轮注入"当前项目 + 必须用 workdir + 不要碰主副本"，纠正 Agent 的无意识路径误用。
-2. **插件硬拦截**（主防线）：`tool.execute.before` 校验 bash workdir / 文件操作路径是否在当前 worktree 内，越界即拒绝。这是活接口，yolo 模式下依然生效。
+2. **插件硬拦截**（主防线）：`tool.execute.before` 校验 bash workdir / 文件操作路径是否在当前 worktree 内，越界即拒绝。未切项目（无 state）时 worktree 边界无定义，但**默认 deny 集（`workspace_root/**` 主副本）在任何状态下都生效**——Agent 在 home 内自由活动，却碰不到主副本，必须 `switch_project` 才能合法进入项目。这是活接口，yolo 模式下依然生效。
 3. **权限规则兜底**（最后防线）：permissions Ruleset 对 worktree allow、主副本 deny、其余 ask。注意 yolo 会跳过，属可选加固。
 
 ### 5.3 诚实的边界（做不到的）
 
 - **无法绝对防绕过**：Agent 有 bash 全权限，可以 `cd` 到任意路径、直接 `git` 操作主副本、改配置文件。任何"限制"对全权限 shell 都是软约束。
-- **主副本只靠软约束保护**：Agent 若刻意 `cd <workspace_root>/projA && git ...` 或写文件，插件拦截只覆盖工具层（read/write/edit/bash workdir 校验），无法拦截 bash 内部的 git 命令。缓解：worktree 分支与主副本分开后，主副本损坏可用 git 恢复；权限规则 deny 主副本（非 yolo 下有效）属 P3 加固。
+- **主副本靠工具层 deny + 软约束双层保护**：插件默认 deny 集含 `workspace_root/**`，无状态（未切项目）与已切项目时均生效——read/write/edit/apply_patch/bash workdir/cd 目标命中主副本即被拦截。缓解：worktree 分支与主副本分开后，主副本损坏可用 git 恢复；权限规则 deny 主副本（非 yolo 下有效）属 P3 加固。
 - **list_project 不暴露路径的价值**：不是"防 Agent"，而是**减少无意识误用**——Agent 根本不知道主副本路径，只能通过 switch_project 拿到合法 worktree 目录。
 - **worktree 分支归属**：分支命名依赖 sessionID 唯一性（天然保证）；但用户需理解"每个会话一个分支"，避免误把多个会话改动合到同一分支。
 
