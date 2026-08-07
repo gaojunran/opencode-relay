@@ -44,6 +44,9 @@ template = "Current project: {project_name} ({project_id}), workdir: {workdir}, 
 [guard]
 enabled = true
 reject_on_violation = true
+# The test environment itself lives under /tmp; keep allow_dirs empty here so the
+# worktree boundary checks stay meaningful (allow_dirs is exercised separately below).
+allow_dirs = []
 `
 fs.writeFileSync(path.join(configDir, "config.toml"), conf)
 process.env.OPENCODE_RELAY_CONFIG = path.join(configDir, "config.toml")
@@ -202,6 +205,18 @@ try {
 // 5f: inside worktree, not matching deny → allowed
 await hooks2["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c8" }, { args: { filePath: path.join(workdir, "README.md") } })
 console.log("read inside worktree, non-deny → allowed ✓")
+
+// 5g. allow_dirs: a dedicated config with allow_dirs=["/tmp"] allows /tmp outside the worktree
+const conf3 = conf2.replace("allow_dirs = []", 'allow_dirs = ["/tmp"]')
+fs.writeFileSync(path.join(configDir, "config.toml"), conf3)
+resetConfig()
+const hooks3 = await plugin.server({ directory: home, project: { id: "relay-test", directory: home } } as any)
+await hooks3["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c18" }, { args: { command: "ls", workdir: "/tmp" } })
+console.log("bash workdir=/tmp (allow_dirs) → allowed ✓")
+await hooks3["tool.execute.before"]!({ tool: "write", sessionID: "ses_abc123xyz", callID: "c19" }, { args: { filePath: "/tmp/relay-e2e-tmp.txt", content: "x" } })
+console.log("write /tmp file (allow_dirs) → allowed ✓")
+await hooks3["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c20" }, { args: { command: "cd /tmp && ls", workdir } })
+console.log("bash cd /tmp (allow_dirs) → allowed ✓")
 
 // 6. system.transform injection
 const sysOut: { system: string[] } = { system: [] }

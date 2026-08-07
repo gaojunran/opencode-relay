@@ -88,6 +88,11 @@ deny_paths = [
 allow_paths = [
   # "/home/nebula/.opencode/**",
 ]
+# Directories outside the worktree that are always allowed (e.g. temp dirs). Empty list disables this.
+# Defaults to ["/tmp"] when omitted.
+allow_dirs = [
+  "/tmp",
+]
 
 # ---------- Permission rules fallback (optional) ----------
 

@@ -455,16 +455,16 @@ function guardToolCall(opts: {
     } else {
       const wd = path.resolve(instanceDir, rawWorkdir);
       log.debug(`[guard] bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
-      if (!isInside(wd, allowed)) {
+      if (!isInside(wd, allowed) && !isInAllowDirs(wd, config.guard.allow_dirs)) {
         violation = `bash workdir outside the current project working dir: ${wd} (allowed: ${allowed})`;
       } else if (matchesDeny(config, wd, log)) {
         violation = `bash workdir matches a deny path: ${wd}`;
       }
     }
     // cd is statically resolvable: a bare cd returns home, and a cd target outside the worktree
-    // is an escape attempt regardless of the agent's intent.
+    // is an escape attempt regardless of the agent's intent (allow_dirs still apply).
     if (!violation && typeof args.command === "string") {
-      const cdViolation = checkCdEscape(args.command, allowed, log);
+      const cdViolation = checkCdEscape(args.command, allowed, config.guard.allow_dirs, log);
       if (cdViolation) violation = cdViolation;
     }
   } else if (FILE_TOOLS.has(toolName)) {
@@ -476,7 +476,7 @@ function guardToolCall(opts: {
       // the tool arg to the absolute path when the agent's intent is correct (inside the worktree).
       const candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(allowed, raw);
       log.debug(`[guard] ${toolName} path resolved: ${raw} -> ${candidate}`);
-      if (!isInside(candidate, allowed)) {
+      if (!isInside(candidate, allowed) && !isInAllowDirs(candidate, config.guard.allow_dirs)) {
         violation = `${toolName} path outside the current project working dir: ${raw} (allowed: ${allowed})`;
         break;
       }
@@ -520,7 +520,7 @@ function guardToolCall(opts: {
  * outside the project worktree is an escape attempt (relative targets resolve against the worktree).
  * Returns a violation message, or null when no cd escape is found.
  */
-function checkCdEscape(command: string, worktree: string, log: RelayLogger): string | null {
+function checkCdEscape(command: string, worktree: string, allowDirs: string[], log: RelayLogger): string | null {
   // Match `cd` invocations: bare cd, cd <path>, cd <path> followed by &&, ;, | or end.
   // Use word boundaries to avoid matching e.g. `scd`; stop the path at shell metacharacters.
   const cdRe = /\bcd(?:\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|`]+)))?/g;
@@ -533,11 +533,15 @@ function checkCdEscape(command: string, worktree: string, log: RelayLogger): str
     }
     const candidate = path.isAbsolute(target) ? path.resolve(target) : path.resolve(worktree, target);
     log.debug(`[guard] bash cd target resolved: ${target} -> ${candidate}`);
-    if (!isInside(candidate, worktree)) {
+    if (!isInside(candidate, worktree) && !isInAllowDirs(candidate, allowDirs)) {
       return `bash cd escapes the project worktree: ${target} -> ${candidate} (allowed: ${worktree})`;
     }
   }
   return null;
+}
+
+function isInAllowDirs(candidate: string, allowDirs: string[]): boolean {
+  return allowDirs.some((dir) => isInside(candidate, dir));
 }
 
 /** Extract the path arguments of file tools (parameter names verified against opencode 1.18.11) */

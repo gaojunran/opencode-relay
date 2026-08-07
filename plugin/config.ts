@@ -26,7 +26,7 @@ export interface RelayConfig {
   projects: { items: ProjectItem[]; scan_dir?: string };
   worktree: { branch_prefix: string; end_of_session: EndOfSessionStrategy; remote: string; stale_days: number };
   inject: { enabled: boolean; template: string; list_projects: boolean };
-  guard: { enabled: boolean; reject_on_violation: boolean; deny_paths: string[]; allow_paths: string[] };
+  guard: { enabled: boolean; reject_on_violation: boolean; deny_paths: string[]; allow_paths: string[]; allow_dirs: string[] };
   permissions: { enabled: boolean; rules: PermissionRule[] };
   list: { include_description: boolean };
 }
@@ -305,6 +305,14 @@ function buildConfig(raw: TomlTable): RelayConfig {
       reject_on_violation: asBoolean(guard.reject_on_violation, true),
       deny_paths: asArray(guard.deny_paths).filter((v): v is string => typeof v === "string"),
       allow_paths: asArray(guard.allow_paths).filter((v): v is string => typeof v === "string"),
+      // Directories where the guard does not enforce the worktree boundary (e.g. temp dirs).
+      // Defaults to ["/tmp"] when the key is absent; an explicit empty array disables this.
+      allow_dirs:
+        guard.allow_dirs === undefined
+          ? ["/tmp"]
+          : asArray(guard.allow_dirs)
+              .filter((v): v is string => typeof v === "string")
+              .map(expandHome),
     },
     permissions: { enabled: asBoolean(permissions.enabled, false), rules },
     list: { include_description: asBoolean(list.include_description, true) },
