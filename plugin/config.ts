@@ -205,7 +205,7 @@ function parseToml(text: string): TomlTable {
 // ---------- Config mapping ----------
 
 const DEFAULT_TEMPLATE =
-  "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}. Use the workdir parameter for bash, absolute paths for file operations, and never modify the main copy.";
+  "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}. File tool relative paths resolve against the workdir; bash without an explicit workdir runs in the workdir. Never modify the main copy.";
 
 const VALID_END_OF_SESSION: readonly string[] = ["keep", "push", "cleanup"];
 

@@ -447,19 +447,28 @@ function guardToolCall(opts: {
 
   if (toolName === "bash") {
     const rawWorkdir = typeof args.workdir === "string" ? args.workdir : undefined;
-    const wd = rawWorkdir ? path.resolve(instanceDir, rawWorkdir) : instanceDir;
-    log.debug(`[guard] bash workdir resolved: ${wd} (raw=${rawWorkdir ?? "defaulted to instanceDir"})`);
+    // No workdir: we cannot probe the agent's intent, so default the execution dir to the project
+    // worktree (the shared reference means this rewrite takes effect on the real call).
+    if (!rawWorkdir) {
+      args.workdir = allowed;
+      log.debug(`[guard] bash without workdir, defaulted to project worktree: ${allowed}`);
+      return;
+    }
+    const wd = path.resolve(instanceDir, rawWorkdir);
+    log.debug(`[guard] bash workdir resolved: ${wd} (raw=${rawWorkdir})`);
     if (!isInside(wd, allowed)) {
       violation = `bash workdir outside the current project working dir: ${wd} (allowed: ${allowed})`;
     } else if (matchesDeny(config, wd, log)) {
       violation = `bash workdir matches a deny path: ${wd}`;
     }
   } else if (FILE_TOOLS.has(toolName)) {
-    // Parameter names verified against opencode 1.18.11: read/write/edit=filePath; glob/grep=path (search dir);
+    // Parameter names verified against opencode 1.18.5: read/write/edit=filePath; glob/grep=path (search dir);
     // apply_patch=patchText (paths inside *** Add/Delete/Update/Move lines, possibly multiple)
     const candidates = fileToolPaths(toolName, args);
     for (const raw of candidates) {
-      const candidate = path.resolve(instanceDir, raw);
+      // Resolve relative paths against the project worktree (not the session dir=home), and rewrite
+      // the tool arg to the absolute path when the agent's intent is correct (inside the worktree).
+      const candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(allowed, raw);
       log.debug(`[guard] ${toolName} path resolved: ${raw} -> ${candidate}`);
       if (!isInside(candidate, allowed)) {
         violation = `${toolName} path outside the current project working dir: ${raw} (allowed: ${allowed})`;
@@ -469,6 +478,21 @@ function guardToolCall(opts: {
         violation = `${toolName} path matches a deny path: ${raw}`;
         break;
       }
+      if (!path.isAbsolute(raw)) {
+        // Shared reference: rewriting args.* takes effect on the real tool call.
+        if (toolName === "read" || toolName === "write" || toolName === "edit") {
+          args.filePath = candidate;
+        } else if (toolName === "glob" || toolName === "grep") {
+          args.path = candidate;
+        }
+        log.debug(`[guard] ${toolName} rewrote relative path to absolute: ${candidate}`);
+      }
+    }
+    // glob/grep without an explicit path default to the worktree as the search root
+    // (opencode would otherwise search the session dir=home, which is unverifiable intent).
+    if ((toolName === "glob" || toolName === "grep") && typeof args.path !== "string") {
+      args.path = allowed;
+      log.debug(`[guard] ${toolName} without path, defaulted search root to worktree: ${allowed}`);
     }
   }
 

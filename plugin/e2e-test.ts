@@ -93,12 +93,28 @@ try {
 } catch (e) {
   console.log("bash /etc out of bounds → rejected ✓: " + (e as Error).message.slice(0, 60))
 }
-// 5b. bash workdir defaulted (home) out of bounds
+// 5b. bash without workdir: cannot probe intent, so the workdir is auto-set to the worktree (allowed)
+{
+  const output: { args: Record<string, unknown> } = { args: { command: "ls" } }
+  await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c2" }, output)
+  if (output.args.workdir !== workdir) throw new Error("bash without workdir was not defaulted to the worktree")
+  console.log("bash without workdir → auto-set to worktree, allowed ✓")
+}
+// 5b2. read relative path inside the worktree is resolved against the worktree and rewritten to absolute
+{
+  const output: { args: Record<string, unknown> } = { args: { filePath: "README.md" } }
+  await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c2b" }, output)
+  if (output.args.filePath !== path.join(workdir, "README.md")) {
+    throw new Error(`read relative path not rewritten: ${output.args.filePath}`)
+  }
+  console.log("read relative path → resolved against worktree & rewritten ✓")
+}
+// 5b3. read relative path escaping the worktree is rejected
 try {
-  await hooks["tool.execute.before"]!({ tool: "bash", sessionID: "ses_abc123xyz", callID: "c2" }, { args: { command: "ls" } })
-  throw new Error("bash default workdir out-of-bounds not intercepted!")
+  await hooks["tool.execute.before"]!({ tool: "read", sessionID: "ses_abc123xyz", callID: "c2c" }, { args: { filePath: "../../etc/passwd" } })
+  throw new Error("read escaping relative path not intercepted!")
 } catch (e) {
-  console.log("bash default workdir (home) → rejected ✓")
+  console.log("read escaping relative path → rejected ✓: " + (e as Error).message.slice(0, 60))
 }
 // 5c. read absolute path out of bounds
 try {
