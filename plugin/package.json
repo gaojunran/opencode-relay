@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@jclem/logfmt2": "^2.4.3",
     "@opencode-ai/plugin": "1.18.12"
   },
   "devDependencies": {

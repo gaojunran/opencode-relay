@@ -4,8 +4,11 @@
   "workspaces": {
     "": {
       "name": "opencode-relay-plugin",
-      "devDependencies": {
+      "dependencies": {
+        "@jclem/logfmt2": "^2.4.3",
         "@opencode-ai/plugin": "1.18.12",
+      },
+      "devDependencies": {
         "@types/node": "16.9.1",
         "typescript": "5.9.3",
       },
@@ -13,6 +16,8 @@
   },
   "packages": {
     "@ai-sdk/provider": ["@ai-sdk/provider@3.0.8", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ=="],
+
+    "@jclem/logfmt2": ["@jclem/logfmt2@2.4.3", "", {}, "sha512-d7zluLlx+JRtVICF0+ghcrVdXBdE3eXrpIuFdcCcWxA3ABOyemkTySG4ha2AdsWFwAnh8tkB1vtyeZsWAbLumg=="],
 
     "@msgpackr-extract/msgpackr-extract-darwin-arm64": ["@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4", "", { "os": "darwin", "cpu": "arm64" }, "sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ=="],
 

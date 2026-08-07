@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { encode } from "@jclem/logfmt2";
 
 // ---------- Type definitions ----------
 
@@ -42,13 +43,6 @@ export interface RelayLogger {
 
 const LOG_THRESHOLD: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
-/** Escape a value for the logfmt format: values containing whitespace, quotes or '=' are
- *  double-quoted with backslash escapes (matches the logfmt spec). */
-function logfmtValue(v: string): string {
-  if (/^[A-Za-z0-9_./:@+-]+$/.test(v)) return v;
-  return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
-}
-
 /** Daily-rotated log file writer. Append-only, never throws (a failed log write must not
  *  break the plugin). Returns null when file logging is disabled (empty dir). */
 function makeLogWriter(logDir: string): ((line: string) => void) | null {
@@ -73,7 +67,7 @@ export function createLogger(level: string, logDir = ""): RelayLogger {
   const writeFile = makeLogWriter(logDir);
   const emit = (min: number, name: LogLevel, method: "log" | "warn" | "error", source: string, msg: string) => {
     if (threshold <= min) {
-      const line = `ts=${logfmtValue(new Date().toISOString())} level=${name} logger=${logfmtValue(source)} msg=${logfmtValue(msg)}`;
+      const line = encode({ ts: new Date().toISOString(), level: name, logger: source, msg });
       console[method](line);
       writeFile?.(line);
     }
