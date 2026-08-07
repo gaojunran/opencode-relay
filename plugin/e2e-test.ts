@@ -403,6 +403,47 @@ await hooks["chat.message"]!({ sessionID: "ses_abc123xyz", messageID: "m2" }, { 
 }
 console.log("chat.message callable ✓")
 
+// 11. Subagent sessions merge to the parent session
+// (exp-6: task-created subagents are separate sessions linked via the DB parent_id; only the
+// session.created event exposes parentID. The plugin maps child -> parent and resolves every
+// sessionID to the root parent, so a subagent reuses the parent's worktree instead of creating
+// an orphan, and guard/system.transform enforce the parent's project boundary.)
+{
+  // Simulate the session.created event for a subagent of ses_abc123xyz
+  await hooks.event!({
+    event: {
+      id: "evt-sub",
+      type: "session.created",
+      properties: { info: { id: "ses_child001", parentID: "ses_abc123xyz" } },
+    },
+  } as any)
+  // Subagent switch_project must reuse the parent's worktree (no orphan, same dir)
+  const swSub = await hooks.tool!.switch_project!.execute(
+    { project_id: "projA" },
+    { sessionID: "ses_child001", directory: home } as any,
+  )
+  const subObj = typeof swSub === "string" ? JSON.parse(swSub) : JSON.parse(swSub.output)
+  if (subObj.workdir !== workdir) throw new Error(`subagent switch did not reuse parent worktree! got ${subObj.workdir}`)
+  console.log("subagent switch_project reuses parent worktree ✓")
+  // Subagent system.transform inherits the parent project context (not the project list)
+  const sysSub: { system: string[] } = { system: [] }
+  await hooks["experimental.chat.system.transform"]!({ sessionID: "ses_child001", model: {} as any }, sysSub)
+  if (!sysSub.system.join("\n").includes("projA")) throw new Error("subagent did not inherit parent project context!")
+  console.log("subagent system.transform inherits parent context ✓")
+  // Subagent guard enforces the parent worktree boundary
+  let subRejected = false
+  try {
+    await hooks["tool.execute.before"]!(
+      { tool: "bash", sessionID: "ses_child001", callID: "c40" },
+      { args: { command: "ls", workdir: "/etc" } },
+    )
+  } catch {
+    subRejected = true
+  }
+  if (!subRejected) throw new Error("subagent guard did not enforce parent worktree boundary!")
+  console.log("subagent guard enforces parent worktree boundary ✓")
+}
+
 console.log("\n✅ P1 all verifications passed")
 // Cleanup
 fs.rmSync(R, { recursive: true, force: true })

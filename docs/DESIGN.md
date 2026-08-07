@@ -243,6 +243,38 @@ hook: { shell: { env: async ({sessionID}, output) => {
 
 典型配置：`on_switch = "mise env"` 或 `on_switch = "direnv export bash"`（stdout 直接是 export 行，`parseEnvDump` 兼容）。
 
+### 4.4c 子代理会话归并（task 派生的子会话共享父会话项目状态）
+
+opencode 的 `task` 工具创建的子代理是**独立 session**（独立 sessionID，DB 用 `parent_id` 关联父会话，见 task.ts:156-172、session.ts:522）。它继承父会话的 directory 并复用同一插件实例（server() 按 directory 只初始化一次），但**不继承上下文**——子代理是干净上下文，会重新调用 switch_project。
+
+**问题**：插件按 sessionID 隔离 state。子代理是新的 sessionID，若它调用 switch_project 会创建**自己的 worktree**（父会话不知道的孤儿目录/分支），父会话 dispose 也不会清理，改动互相隔离。
+
+**方案：子代理状态归并到根父会话**（event hook + resolveSessionID）：
+
+```ts
+const parentMap = new Map<string, string>(); // childID -> parentID
+const resolveSessionID = (id) => {          // 沿 parentMap 递归到根父会话
+  let cur = id, seen = new Set();
+  while (parentMap.has(cur) && !seen.has(cur)) { seen.add(cur); cur = parentMap.get(cur)!; }
+  return cur;
+};
+
+hook: { event: async ({ event }) => {
+  if (event.type === "session.created" && event.properties.info?.parentID) {
+    parentMap.set(event.properties.info.id, event.properties.info.parentID); // 建立 child→parent
+  }
+} }
+```
+
+所有消费 sessionID 的点（tool.execute.before 的 guard、system.transform 注入、shell.env、switch_project/leave_project 工具、dispose 的 activeSessionID）先 `resolveSessionID()` 再读写 state。效果：
+
+- 子代理 switch_project = 父会话切项目 → **复用同一 worktree**，不产生孤儿
+- 子代理的 guard 边界与父会话一致（在父会话 worktree 内放行、越界拦截）
+- system.transform 给子代理注入父会话当前项目上下文（而非项目清单）
+- dispose 统一处理父会话 state，子代理的 work 落在父会话分支上
+
+注意（exp-6 实证）：`parentID` 不进 `tool.execute.before`/`system.transform` 的 input，只有 `event` hook 的 `session.created`（properties.info 含完整 SessionInfo）或 SDK `session.get()` 能拿到；`dispose` 按实例触发不按会话，不能依赖它清理子代理状态。子代理与父会话共享插件实例，不要在 server() 里做按会话初始化。
+
 ### 4.5 tool.execute.before hook（防绕过硬拦截）
 
 ```ts

@@ -60,6 +60,23 @@ function buildHooks(opts: {
 }): Hooks {
   const { config, log, instanceDir } = opts;
 
+  // Subagent sessions are separate sessions with their own sessionID, linked to the parent
+  // via the DB parent_id column. parentID is only observable through the event hook (exp-6:
+  // tool.execute.before / system.transform inputs carry only the subagent's own sessionID).
+  // We map child -> root parent so subagent tool calls inherit the parent's project state
+  // (same worktree, no orphan worktrees, guard consistent, dispose handles the parent once).
+  const parentMap = new Map<string, string>();
+
+  const resolveSessionID = (sessionID: string): string => {
+    let current = sessionID;
+    const seen = new Set<string>();
+    while (parentMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = parentMap.get(current)!;
+    }
+    return current;
+  };
+
   // dispose receives no arguments (opencode plugin/index.ts:266 calls hook.dispose?.() directly),
   // so a module-level variable records the session of the most recent tool call for dispose.
   let activeSessionID: string | undefined;
@@ -91,8 +108,8 @@ function buildHooks(opts: {
           project_id: tool.schema.string().describe("Project ID (from list_project)"),
         },
         execute: async (args, context): Promise<ToolResult> => {
-          activeSessionID = context.sessionID;
-          return switchProject(config, log, context.sessionID, args.project_id);
+          activeSessionID = resolveSessionID(context.sessionID);
+          return switchProject(config, log, activeSessionID, args.project_id);
         },
       }),
 
@@ -125,18 +142,19 @@ function buildHooks(opts: {
         description: "Leave the current project and return to the free state. Your changes are preserved.",
         args: {},
         execute: async (_args, context): Promise<ToolResult> => {
-          activeSessionID = context.sessionID;
-          const state = readSessionState(config, context.sessionID);
+          const sessionID = resolveSessionID(context.sessionID);
+          activeSessionID = sessionID;
+          const state = readSessionState(config, sessionID);
           if (!state) {
-            log.info("leave_project", `session ${context.sessionID} has no project switched, nothing to leave`);
+            log.info("leave_project", `session ${sessionID} has no project switched, nothing to leave`);
             return {
               title: "Not in a project",
               output: "This session has no project switched, no leave_project needed.",
             };
           }
-          const removed = removeSessionState(config, context.sessionID);
+          const removed = removeSessionState(config, sessionID);
           log.info("leave_project", 
-            `session ${context.sessionID} left project ${state.project_id}, state removed: ${removed} (worktree kept: ${state.workdir}, branch=${liveBranch(state, log)})`,
+            `session ${sessionID} left project ${state.project_id}, state removed: ${removed} (worktree kept: ${state.workdir}, branch=${liveBranch(state, log)})`,
           );
           return {
             title: "Left project",
@@ -155,8 +173,21 @@ function buildHooks(opts: {
       }),
     },
 
+    // Track subagent sessions: task-created subagents are separate sessions linked to the
+    // parent via the DB parent_id. The session.created event is the only hook that exposes
+    // parentID (exp-6: tool.execute.before / system.transform inputs carry only the subagent's
+    // own sessionID), so we maintain a child -> parent map here for resolveSessionID.
+    event: async ({ event }) => {
+      if (event.type !== "session.created") return;
+      const props = event.properties as { info?: { id?: string; parentID?: string } };
+      const info = props?.info;
+      if (!info?.id || !info?.parentID) return;
+      parentMap.set(info.id, info.parentID);
+      log.debug("event", `subagent session ${info.id} -> parent ${info.parentID}`);
+    },
+
     "experimental.chat.system.transform": async (hookInput, output) => {
-      const sessionID = hookInput.sessionID;
+      const sessionID = hookInput.sessionID ? resolveSessionID(hookInput.sessionID) : undefined;
       if (!sessionID || !config.inject.enabled) return;
       const state = readSessionState(config, sessionID);
       if (!state) {
@@ -208,7 +239,8 @@ function buildHooks(opts: {
     },
 
     "tool.execute.before": async (hookInput, output) => {
-      const { tool: toolName, sessionID } = hookInput;
+      const { tool: toolName } = hookInput;
+      const sessionID = hookInput.sessionID ? resolveSessionID(hookInput.sessionID) : undefined;
       if (!toolName || !sessionID) return;
       log.debug("guard", 
         `tool ${toolName} (session ${sessionID}) args=${truncate(JSON.stringify(output.args ?? {}), 1200)}`,
@@ -228,7 +260,7 @@ function buildHooks(opts: {
     // spawns a fresh process per call (exp-4: shell -c, non-login, no rc), so process-wide env
     // would not survive; this hook runs before every spawn (shell.ts:416-426).
     "shell.env": async (hookInput, output) => {
-      const { sessionID } = hookInput;
+      const sessionID = hookInput.sessionID ? resolveSessionID(hookInput.sessionID) : undefined;
       if (!sessionID) return;
       const state = readSessionState(config, sessionID);
       if (!state || Object.keys(state.env).length === 0) return;
