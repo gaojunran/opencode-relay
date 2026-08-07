@@ -169,9 +169,9 @@ tool.switch_project({ project_id: string })
 
 1. 查配置注册表 `[projects]` → `repo_path`（主副本位置）。
 2. **无条件创建独立 git worktree**：
-   - `git worktree add --no-checkout -b <branch_prefix><sessionID 短id> <worktree_dir> <repo_path 的 HEAD>`
-   - worktree_dir 约定：`<config.worktree_root>/<project_id>/<sessionID 短id>`（默认 home 内，免 external_directory 授权）。
-   - 分支名 `<branch_prefix><sessionID 短id>`（默认 `opencode/` 前缀）天然唯一（会话 ID 唯一），多会话同项目各自独立分支，零冲突。
+   - `git worktree add --no-checkout -b <branch_prefix><sessionID 全量 sanitized> <worktree_dir> <repo_path 的 HEAD>`
+   - worktree_dir 约定：`<config.worktree_root>/<project_id>/<sessionID 全量 sanitized>`（默认 home 内，免 external_directory 授权）。
+   - 分支名 `<branch_prefix><sessionID 全量 sanitized>`（默认 `opencode/` 前缀）天然唯一（会话 ID 唯一），多会话同项目各自独立分支，零冲突。
 3. 写 `<config.state_dir>/<sessionID>.json`，返回工作目录：
    ```
    → { "workdir": "<worktree_dir>", "project_id": "projA" }
@@ -181,7 +181,7 @@ tool.switch_project({ project_id: string })
 **会话内多次切换**：同一 session 再次 switch 到已建过 worktree 的项目 → 复用已有 worktree（读 state_dir 状态），不重复创建；切到新项目 → 新建 worktree。
 
 **worktree 分支与归并**（P3 完善）：
-- 分支 `<branch_prefix><sessionID 短id>` 承载本会话全部改动。
+- 分支 `<branch_prefix><sessionID 全量 sanitized>` 承载本会话全部改动。
 - 会话结束（dispose）时：按 `[worktree].end_of_session` 配置执行 `keep`（默认，保留分支 + worktree 供手动 review/merge）、`push`（自动 `git push <remote> <branch>` 并提示开 PR）或 `cleanup`（删除 worktree 目录，分支保留）。
 - 主副本 `<workspace_root>/<project>` 保持干净，是长期可信基线。
 
@@ -324,7 +324,7 @@ for each worktree in <worktree_root>/<project>/*:
 
 ### 4.9 分支归并（P3，会话结束策略）
 
-**背景**：会话的改动全部落在 `<branch_prefix><sessionID 短id>` 分支（worktree 内），主副本保持干净。会话结束（`dispose` hook）时按 `[worktree].end_of_session` 决定分支去向。
+**背景**：会话的改动全部落在 `<branch_prefix><sessionID 全量 sanitized>` 分支（worktree 内），主副本保持干净。会话结束（`dispose` hook）时按 `[worktree].end_of_session` 决定分支去向。
 
 **三种策略**（`end_of_session`，默认 `keep`）：
 

@@ -15,9 +15,12 @@ export function sanitizeSessionID(sessionID: string): string {
   return sessionID.replace(/[^A-Za-z0-9]/g, "");
 }
 
-/** Session short id: first 8 chars after stripping non-alphanumerics, used for worktree dir and branch naming */
-export function shortSessionID(sessionID: string): string {
-  return sanitizeSessionID(sessionID).slice(0, 8);
+/** Session identifier used for worktree dir and branch naming: the full sanitized sessionID.
+ *  Earlier versions truncated to the first 8 chars, which collided because opencode sessionIDs
+ *  share a timestamp prefix within a window (e.g. ses_0232c2a85... vs ses_0232c9d87...), letting
+ *  two sessions share one worktree/branch. The full id is globally unique. */
+export function worktreeSessionID(sessionID: string): string {
+  return sanitizeSessionID(sessionID);
 }
 
 function stateFilePath(config: RelayConfig, sessionID: string): string {

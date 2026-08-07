@@ -55,7 +55,7 @@ repo_path = "~/workspace/projB"
 # ---------- Worktree lifecycle ----------
 
 [worktree]
-# Worktree branch prefix; actual branch = branch_prefix + <sessionID short id>
+# Worktree branch prefix; actual branch = branch_prefix + <sessionID full sanitized id>
 branch_prefix = "opencode/"
 # Session-end (dispose) strategy:
 #   keep    - keep the branch + worktree dir for manual review/merge (default)

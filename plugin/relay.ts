@@ -18,7 +18,7 @@ import {
   readSessionState,
   removeSessionState,
   sanitizeSessionID,
-  shortSessionID,
+  worktreeSessionID,
   writeSessionState,
   type SessionState,
 } from "./state.js";
@@ -406,7 +406,7 @@ function switchProject(
     throw new Error(`Project not found: ${projectId}, run list_project to see available projects`);
   }
 
-  const shortId = shortSessionID(sessionID);
+  const shortId = worktreeSessionID(sessionID);
   const worktreeDir = path.join(config.paths.worktree_root, project.id, shortId);
   const branch = `${config.worktree.branch_prefix}${shortId}`;
 
