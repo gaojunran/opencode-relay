@@ -561,6 +561,17 @@ function switchProject(
     throw new Error(`Project not found: ${projectId}, run list_project to see available projects`);
   }
 
+  // Fetch the main copy's remotes so base_branch / remote refs resolve against current
+  // state (default on; failures degrade to local refs, never block the switch).
+  if (project.fetch !== false) {
+    try {
+      log.info("switch_project", `fetching remotes for ${projectId}...`);
+      execGit(["fetch", "--all", "--prune"], { cwd: project.repo_path, timeoutMs: 60000 }, log);
+    } catch (err) {
+      log.warn("switch_project", `fetch failed for ${projectId}, continuing with local refs: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const shortId = worktreeSessionID(sessionID);
   const worktreeDir = path.join(config.paths.worktree_root, project.id, shortId);
   const branch = `${config.worktree.branch_prefix}${shortId}`;

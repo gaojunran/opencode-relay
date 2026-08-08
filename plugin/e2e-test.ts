@@ -69,6 +69,28 @@ base_branch = { command = "echo dev" }
 id = "projBaseFail"
 name = "projBaseFail"
 repo_path = "${repoPath}"
+base_branch = { command = "exit 3" }
+# fetch + semver base_branch tests
+[[projects.items]]
+id = "projSemver"
+name = "projSemver"
+repo_path = "${repoPath}"
+base_branch = { command = "git for-each-ref refs/remotes/origin/ --format='%(refname:short)' | grep -E '^origin/v[0-9]+(\\\\.[0-9]+){1,2}$' | sort -V | tail -1" }
+[[projects.items]]
+id = "projNoFetch"
+name = "projNoFetch"
+repo_path = "${repoPath}"
+base_branch = "dev"
+fetch = false
+[[projects.items]]
+id = "projBaseCmd"
+name = "projBaseCmd"
+repo_path = "${repoPath}"
+base_branch = { command = "echo dev" }
+[[projects.items]]
+id = "projBaseFail"
+name = "projBaseFail"
+repo_path = "${repoPath}"
 base_branch = { command = "false" }
 [worktree]
 branch_prefix = "opencode/"
@@ -510,6 +532,54 @@ console.log("\n== base_branch fork point ==")
   const failOut = typeof wtFail === "string" ? JSON.parse(wtFail) : JSON.parse((wtFail as any).output)
   if (fs.existsSync(path.join(failOut.workdir, "dev.txt"))) throw new Error("base_branch failing command should fall back to HEAD (no dev.txt)!")
   console.log("base_branch failing command falls back to HEAD ✓")
+}
+
+// 13. fetch (default on) + semver base_branch: a command that picks the largest
+// v-prefixed semver origin branch. The remote refs are removed locally to prove the
+// switch-time fetch pulled them, and the worktree must fork from origin/v2.0.0.
+console.log("\n== fetch + semver base_branch ==")
+{
+  const semverRemote = path.join(R, "semver-remote.git")
+  execFileSync("git", ["init", "--bare", "-q", semverRemote])
+  execFileSync("git", ["remote", "add", "origin", semverRemote], { cwd: repoPath })
+  execFileSync("git", ["push", "-q", "origin", "HEAD:refs/heads/main"], { cwd: repoPath })
+  for (const v of ["v1.2.0", "v1.10.0", "v2.0.0"]) {
+    execFileSync("git", ["checkout", "-qb", v], { cwd: repoPath })
+    fs.writeFileSync(path.join(repoPath, `${v}.txt`), `${v} marker\n`)
+    execFileSync("git", ["add", "."], { cwd: repoPath })
+    execFileSync("git", ["commit", "-qm", v], { cwd: repoPath })
+    execFileSync("git", ["push", "-q", "origin", `HEAD:refs/heads/${v}`], { cwd: repoPath })
+    execFileSync("git", ["checkout", "-q", "-"], { cwd: repoPath })
+    execFileSync("git", ["branch", "-D", v], { cwd: repoPath })
+  }
+  // Simulate a stale main copy: drop every remote-tracking ref so the semver command
+  // can only succeed if the switch-time fetch restored them.
+  execFileSync("git", ["remote", "set-head", "origin", "-d"], { cwd: repoPath })
+  const staleRefs = execFileSync("git", ["for-each-ref", "refs/remotes/origin/", "--format=%(refname)"], { cwd: repoPath, encoding: "utf8" })
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+  for (const ref of staleRefs) execFileSync("git", ["update-ref", "-d", ref], { cwd: repoPath })
+  const originRefsBefore = execFileSync("git", ["for-each-ref", "refs/remotes/origin/", "--format=%(refname:short)"], { cwd: repoPath, encoding: "utf8" }).trim()
+  if (originRefsBefore) throw new Error("expected zero origin refs before switch, got: " + originRefsBefore)
+
+  const wtSemver = await hooks.tool!.switch_project!.execute(
+    { project_id: "projSemver" },
+    { sessionID: "ses_semver1", directory: home } as any,
+  )
+  const semverOut = typeof wtSemver === "string" ? JSON.parse(wtSemver) : JSON.parse((wtSemver as any).output)
+  if (!fs.existsSync(path.join(semverOut.workdir, "v2.0.0.txt"))) throw new Error("semver base_branch did not fork from origin/v2.0.0!")
+  if (fs.existsSync(path.join(semverOut.workdir, "v1.10.0.txt"))) throw new Error("semver base_branch wrongly forked from a smaller version!")
+  console.log("fetch + semver base_branch forks from largest v branch (origin/v2.0.0) ✓")
+
+  // fetch=false project must skip the fetch entirely and still work off local refs.
+  const wtNoFetch = await hooks.tool!.switch_project!.execute(
+    { project_id: "projNoFetch" },
+    { sessionID: "ses_nofetch1", directory: home } as any,
+  )
+  const noFetchOut = typeof wtNoFetch === "string" ? JSON.parse(wtNoFetch) : JSON.parse((wtNoFetch as any).output)
+  if (!fs.existsSync(path.join(noFetchOut.workdir, "dev.txt"))) throw new Error("fetch=false project did not fork from local dev branch!")
+  console.log("fetch=false skips fetch, uses local refs ✓")
 }
 
 console.log("\n✅ P1 all verifications passed")

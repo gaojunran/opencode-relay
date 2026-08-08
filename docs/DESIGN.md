@@ -173,6 +173,7 @@ tool.switch_project({ project_id: string })
    - worktree_dir 约定：`<config.worktree_root>/<project_id>/<sessionID 全量 sanitized>`（默认 home 内，免 external_directory 授权）。
    - 分支名 `<branch_prefix><sessionID 全量 sanitized>`（默认 `opencode/` 前缀）天然唯一（会话 ID 唯一），多会话同项目各自独立分支，零冲突。
    - **base_ref（`[projects].items[].base_branch`，项目级）**：缺省/空 = 主副本当前 HEAD；字符串（如 `"main"`）直接作 ref；`{ command = "git ..." }` 在主副本 cwd 执行、取 stdout 首行作 ref，失败降级 HEAD。三种形态均实测（e2e-test 12 号场景）。
+   - **fetch（`[projects].items[].fetch`，默认 true）**：创建 worktree 前在主副本执行 `git fetch --all --prune`（60s 超时），保证 `base_branch` 的远程 refs 是最新的（如按 `origin/v*` semver 选基底）；失败仅记 warn 降级用本地 refs，绝不阻塞 switch。`fetch = false` 跳过。e2e-test 13 号场景实测：清空本地 origin refs 后 switch，`base_branch = { command = "… | sort -V | tail -1" }` 经 fetch 拉回远程并选出最大 v 分支。
 3. 写 `<config.state_dir>/<sessionID>.json`，返回工作目录：
    ```
    → { "workdir": "<worktree_dir>", "project_id": "projA" }

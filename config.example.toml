@@ -47,6 +47,11 @@ description = "The opencode-relay project itself"
 # A command runs in the main copy and its trimmed stdout is used as the ref
 # (e.g. the repo's default remote branch); on failure it falls back to HEAD:
 # base_branch = { command = "git symbolic-ref refs/remotes/origin/HEAD" }
+# Example: fork from the origin branch with the largest v-prefixed semver tag:
+#   base_branch = { command = "git for-each-ref refs/remotes/origin/ --format='%(refname:short)' | grep -E '^origin/v[0-9]+(\\.[0-9]+){1,2}$' | sort -V | tail -1" }
+# Fetch the main copy's remotes before creating a worktree, so remote refs (and the
+# command above) see current state. Default true.
+# fetch = true
 
 [[projects.items]]
 id = "projA"

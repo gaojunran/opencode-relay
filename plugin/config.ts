@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { encode } from "@jclem/logfmt2";
+import { parse as parseToml, TomlError } from "smol-toml";
 
 // ---------- Type definitions ----------
 
@@ -19,6 +20,9 @@ export interface ProjectItem {
   repo_path: string;
   description?: string;
   base_branch?: BaseBranch;
+  /** Run `git fetch` in the main copy before creating a worktree, so base_branch /
+   *  remote refs are current. Default true. */
+  fetch?: boolean;
 }
 
 export interface PermissionRule {
@@ -96,154 +100,10 @@ export function createLogger(level: string, logDir = ""): RelayLogger {
   };
 }
 
-// ---------- Lightweight TOML parser ----------
-
-type TomlTable = Record<string, unknown>;
-
-/** Strip inline # comments (a # inside a string is preserved) */
-function stripComment(line: string): string {
-  let inString = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inString) {
-      if (ch === "\\") i++;
-      else if (ch === '"' || ch === "'") inString = false;
-    } else if (ch === '"' || ch === "'") {
-      inString = true;
-    } else if (ch === "#") {
-      return line.slice(0, i);
-    }
-  }
-  return line;
-}
-
-/** Split on top-level commas (ignores commas inside strings, arrays, and inline tables) */
-function splitTopLevel(input: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let depth = 0;
-  let inString = false;
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
-    if (inString) {
-      current += ch;
-      if (ch === "\\") {
-        current += input[i + 1] ?? "";
-        i++;
-      } else if (ch === '"' || ch === "'") {
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      inString = true;
-      current += ch;
-    } else if (ch === "[" || ch === "{") {
-      depth++;
-      current += ch;
-    } else if (ch === "]" || ch === "}") {
-      depth--;
-      current += ch;
-    } else if (ch === "," && depth === 0) {
-      parts.push(current.trim());
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  if (current.trim()) parts.push(current.trim());
-  return parts;
-}
-
-/** Parse an inline value: string / number / boolean / array / inline table */
-function parseValue(raw: string): unknown {
-  const v = raw.trim();
-  if (v.startsWith('"') || v.startsWith("'")) {
-    const quote = v[0];
-    let out = "";
-    for (let i = 1; i < v.length; i++) {
-      const ch = v[i];
-      if (ch === "\\" && i + 1 < v.length) {
-        const next = v[i + 1];
-        out += next === "n" ? "\n" : next === "t" ? "\t" : next;
-        i++;
-      } else if (ch === quote) {
-        break;
-      } else {
-        out += ch;
-      }
-    }
-    return out;
-  }
-  if (v === "true") return true;
-  if (v === "false") return false;
-  if (v.startsWith("[")) {
-    const inner = v.slice(1, v.lastIndexOf("]"));
-    return splitTopLevel(inner).map((part) => parseValue(part));
-  }
-  if (v.startsWith("{")) {
-    const inner = v.slice(1, v.lastIndexOf("}"));
-    const table: TomlTable = {};
-    for (const pair of splitTopLevel(inner)) {
-      const eq = pair.indexOf("=");
-      if (eq === -1) continue;
-      table[pair.slice(0, eq).trim()] = parseValue(pair.slice(eq + 1));
-    }
-    return table;
-  }
-  const num = Number(v);
-  return Number.isNaN(num) ? v : num;
-}
-
-function parseToml(text: string): TomlTable {
-  const root: TomlTable = {};
-  let section: TomlTable = root;
-  let item: TomlTable | null = null;
-
-  const ensureTable = (keys: string[]): TomlTable => {
-    let cur: TomlTable = root;
-    for (const key of keys) {
-      const next = cur[key];
-      if (typeof next !== "object" || next === null || Array.isArray(next)) {
-        cur[key] = {};
-      }
-      cur = cur[key] as TomlTable;
-    }
-    return cur;
-  };
-
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = stripComment(rawLine).trim();
-    if (!line) continue;
-    if (line.startsWith("[[")) {
-      const name = line.slice(2, line.indexOf("]]")).trim();
-      const keys = name.split(".");
-      const parent = ensureTable(keys.slice(0, -1));
-      const last = keys[keys.length - 1];
-      if (!Array.isArray(parent[last])) parent[last] = [];
-      const entry: TomlTable = {};
-      (parent[last] as TomlTable[]).push(entry);
-      item = entry;
-      section = entry;
-      continue;
-    }
-    if (line.startsWith("[")) {
-      const name = line.slice(1, line.lastIndexOf("]")).trim();
-      section = ensureTable(name.split("."));
-      item = null;
-      continue;
-    }
-    const eq = line.indexOf("=");
-    if (eq === -1) continue;
-    const key = line.slice(0, eq).trim();
-    const value = parseValue(line.slice(eq + 1));
-    if (item) item[key] = value;
-    else section[key] = value;
-  }
-  return root;
-}
-
 // ---------- Config mapping ----------
+
+/** Plain-object view of a parsed TOML table (smol-toml returns nested plain objects) */
+type TomlTable = Record<string, unknown>;
 
 const DEFAULT_TEMPLATE =
   "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}. File tool relative paths resolve against the workdir; bash without an explicit workdir runs in the workdir. Never modify the main copy.";
@@ -309,6 +169,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
           : typeof bb === "object" && bb !== null && !Array.isArray(bb) && typeof (bb as TomlTable).command === "string"
             ? { command: (bb as TomlTable).command as string }
             : undefined,
+      fetch: t.fetch !== false,
     });
   }
 
@@ -411,7 +272,11 @@ function readConfigFromDisk(): RelayConfig {
   try {
     return buildConfig(parseToml(text));
   } catch (err) {
-    warnTTY(`[opencode-relay] failed to parse config, using defaults: ${file} (${String(err)})`);
+    const loc =
+      err instanceof TomlError
+        ? ` at line ${err.line}, column ${err.column}`
+        : "";
+    warnTTY(`[opencode-relay] failed to parse config${loc}, using defaults: ${file} (${String(err)})`);
     return buildConfig({});
   }
 }

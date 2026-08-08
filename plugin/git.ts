@@ -12,7 +12,7 @@ export interface WorktreeEntry {
 /** Run a git command (execFileSync, no shell concatenation); throws an Error with stderr on failure */
 export function execGit(
   args: string[],
-  opts: { cwd?: string } = {},
+  opts: { cwd?: string; timeoutMs?: number } = {},
   logger?: RelayLogger,
 ): string {
   logger?.debug("git", `exec: ${args.join(" ")} (cwd: ${opts.cwd ?? process.cwd()})`);
@@ -24,6 +24,7 @@ export function execGit(
       cwd: opts.cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: opts.timeoutMs,
     }).trim();
     logger?.debug("git", `output: ${out.length > 200 ? out.slice(0, 200) + "..." : out}`);
     return out;
