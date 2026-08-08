@@ -2,51 +2,76 @@
 
 [**English**](README.md)
 
-一个 [opencode](https://opencode.ai) 插件，把一个常驻会话变成多项目开发中心。Agent 停留在一个"home"会话中，通过显式的 `switch_project` 工具切换项目。每次切换都会为当前会话创建一个独立的 git worktree，多个会话可以零锁并行工作在同一项目上。
+**一个常驻会话，多个项目，零冲突。**
 
-> **当前状态**：活跃开发中。`list_project`、`switch_project`、`register_project`、`leave_project`、worktree 生命周期、防绕过拦截、智能路径改写、cd 逃逸拦截与清理已实现并通过测试；cc-connect（企微桥接）集成已规划。
+opencode-relay 是一个 [opencode](https://opencode.ai) 插件，把单个 home 会话变成多项目开发中心。Agent 从不离开会话、也从不直接碰主副本：每次 `switch_project` 都给它一个专属 git worktree，主副本永远保持干净，工具层守卫让它物理上无法越界。
 
-## 为什么
+专为 IM 驱动的 Agent 设计（cc-connect 桥接企微对话，`work_dir = home`、`mode = "yolo"`），在任何 opencode 会话中同样可用。
 
-- **一个会话，多个项目**：不用为每个项目开新会话、也不用折腾 `/dir`。Agent 调用 `switch_project` 就能拿到真实的工作目录。
-- **多会话零冲突**：每次切换创建独立的 git worktree，分支唯一（`opencode/<sessionID>`）。无共享工作区、无锁文件。`~/workspace/<project>` 主副本永远干净。
-- **设计上防误操作**：`list_project` 从不暴露项目路径，Agent 无法无意中写主副本；`tool.execute.before` 硬拦截所有逃逸当前 worktree 的 bash/文件操作（yolo 模式下依然生效），包括 bash 命令内的 `cd` 目标。
-- **宽容而非只会拦截**：相对路径按项目 worktree 解析（而非会话目录）并自动改写为绝对路径，Agent 可以自然地工作。
-- **IM 友好**：为对接 cc-connect 设计——cc-connect 把企微对话桥接为固定 home 的 opencode 会话（`work_dir = home`、`mode = "yolo"`），项目路由完全由本插件承担。
+## 核心能力
 
-## 功能
+### 1. 不离开会话即可切换项目
 
-- `list_project` — 只返回 `{id, name}`（可选 `description`）；仓库路径对 Agent 不可见。
-- `switch_project({project_id})` — 无条件创建（或复用）专属 git worktree，返回其路径作为新工作目录。
-- `register_project({dir, id?, name?})` — 从任意 git 仓库路径注册新项目：校验是 git 仓库、拒绝重复 remote（说明已注册）、把目录移动进 workspace root，并持久化到动态注册表。
-- `leave_project()` — 退出当前项目回到未绑定状态；worktree 保留，再次切换同一项目时复用。
-- `cleanup_worktrees({dry_run})` — 回收超过 `stale_days`（默认 7 天）不活跃的 worktree；数据库中的会话历史不受影响。
-- 每轮上下文注入（`experimental.chat.system.transform`）— 未切换前注入项目清单并引导调用 `switch_project`/`register_project`；切换后注入当前项目、工作目录与分支。
-- 智能路径改写（`tool.execute.before`）— 相对路径按项目 worktree 解析并改写为绝对路径；bash 未显式 `workdir` 时默认填 worktree；逃逸 worktree 的 `cd` 目标（包括裸 `cd` 和 `cd ..`）带提示拒绝。
-- 硬拦截（`tool.execute.before`）— 拒绝超出当前 worktree 的 bash `workdir` 或文件路径（与 yolo 模式无关）。
-- 会话结束策略（`dispose`）— `keep`（默认）/ `push` 到配置的 remote / `cleanup` 删除 worktree。
-- opt-out 短路 — 会话目录不在 `[general].home`（默认 `$HOME`）内时插件拒绝加载。
-- 全配置驱动 — 单一 `config.toml`（可用 `OPENCODE_RELAY_CONFIG` 覆盖默认路径）。
+Agent 调用 `switch_project({project_id})` 就能拿到真实的工作目录。无需新开会话、无需 `/dir`、无需折腾 cwd。
 
-## 架构
+- `list_project` — 只返回 id/name；**仓库路径对 Agent 不可见**
+- `switch_project` — 无条件为每个会话创建（或复用）专属 worktree
+- `register_project({dir})` — 从任意 git 仓库注册新项目：校验仓库、拒绝重复 remote、移入 workspace
+- `leave_project` — 回到未绑定状态；worktree 保留，再次进入时复用
+
+### 2. 主副本不可触碰
+
+workspace 根（`~/workspace/<project>`）是干净基线，Agent **永远不会写入**。隔离在工具层强制，而非靠提示词：
+
+- 每次切换创建独立 worktree，分支唯一（`opencode/<sessionID>`）——无共享工作区、无锁文件，多会话并行零冲突
+- `tool.execute.before` 守卫拒绝所有逃逸当前 worktree 的 bash/文件调用——**包括 bash 命令内的 `cd` 目标**——yolo 模式下依然生效
+- workspace 根在任何会话状态下都被 deny，即使尚未切换项目
+
+### 3. 宽容而非只会拦截
+
+守卫优先修正调用而非拒绝，Agent 可以自然地工作：
+
+- 相对文件路径按 **worktree** 解析（而非会话目录）并自动改写为绝对路径
+- `bash` 未显式 `workdir` 时默认落在 worktree 内
+- 逃逸 worktree 的 `cd` 目标（裸 `cd`、`cd ..`、`/etc` 等）带提示拒绝
+- 额外的 `deny_paths`/`allow_paths` glob 与 `allow_dirs`（如 `/tmp`）可调可达范围
+
+### 4. 项目上下文随切换恢复
+
+因为会话目录从不改变，per-directory 的加载（AGENTS.md、skills、环境变量 hook）会静默失效。relay 把它恢复回来：
+
+- 每轮 `system.transform` 注入当前项目、工作目录与分支；未绑定状态则注入项目清单并引导 switch/register
+- 切换后注入 worktree 根的 **AGENTS.md**（或 CLAUDE.md/CONTEXT.md）
+- 列出项目 **skills**，供 Agent 用 skill 工具加载
+- 可选的 `on_switch` 命令（如 `mise env`、`direnv export bash`）dump 环境变量，经 `shell.env` 注入每次 bash 调用
+
+### 5. 子代理默认安全
+
+task 派生的子代理拿到干净上下文和独立 sessionID。relay 让它们继承父会话的项目状态、但**无法修改**它：
+
+- guard、上下文注入、环境变量在子代理内按**父会话的 worktree** 生效
+- `switch_project` / `leave_project` / `register_project` / `cleanup_worktrees` 对**子代理会话一律拒绝**
+- 子代理活跃期间父会话不能切换项目——不产生孤儿 worktree，并行子代理之间无状态竞态
+
+## 工作原理
 
 ```
 企微用户/群
    │  WS 智能机器人
    ▼
-cc-connect（v1.4.1，零改动）
+cc-connect（零改动）
    ├─ work_dir = home                 固定 home 会话
    ├─ mode = "yolo"                   无权限打扰
    └─ 每个 IM 会话键独立 opencode session，--session 续接
    ▼
 opencode run（cc-connect spawn 的 in-process server）
    └─ opencode-relay（本插件）
-        ├─ list_project()             只有 id/name，无路径
         ├─ switch_project(id)         无条件 per-session worktree
         ├─ register_project(dir)      注册新 git 项目进 workspace
         ├─ leave_project()            退出项目，回到未绑定状态
         ├─ system.transform           每轮注入项目清单 / 当前项目
-        ├─ tool.execute.before        硬拦截 + 智能路径改写 + cd 拦截
+        ├─ tool.execute.before        硬拦截 + 路径改写 + cd 拦截
+        ├─ shell.env                  每次 bash 恢复项目环境（on_switch）
         ├─ dispose                    会话结束：keep / push / cleanup
         └─ 配置: ~/.config/opencode-relay/config.toml
             状态: ~/.opencode/state/<sessionID>.json
@@ -54,7 +79,7 @@ opencode run（cc-connect spawn 的 in-process server）
 ~/workspace/<project>                 干净主副本，Agent 永不直接写
 ```
 
-会话状态保存在外部文件（`~/.opencode/state/<sessionID>.json`），因为 V2 opencode 会话没有 metadata 通道。状态按会话隔离，多个 IM 会话互不串台。
+会话状态按 sessionID 存于外部文件，多个 IM 会话互不串台。会话结束默认 `keep`；`push` 自动推送当前分支（可在结束前改成语义化分支名），`cleanup` 删除 worktree。`cleanup_worktrees` 在 `stale_days` 后回收不活跃 worktree——数据库中的会话历史不受影响。
 
 ## 安装
 
@@ -82,7 +107,7 @@ cp config.example.toml ~/.config/opencode-relay/config.toml
 
 ### 对接 cc-connect（可选）
 
-在其配置中设置 `[projects.agent.options] work_dir = "<home>"` 和 `mode = "yolo"`。cc-connect 无需任何代码改动。
+在 cc-connect 配置中设置 `work_dir = "<home>"` 和 `mode = "yolo"`，并把插件加入 opencode 的 `plugin` 数组。cc-connect 无需任何代码改动。
 
 ## 配置
 
@@ -90,14 +115,16 @@ cp config.example.toml ~/.config/opencode-relay/config.toml
 
 | 节 | 用途 |
 |---|---|
-| `[general]` | `enabled`、`home`（默认 `$HOME`，opt-out 边界）、`log_level`（`debug`/`info`/`warn`/`error`） |
+| `[general]` | `enabled`、`home`（默认 `$HOME`，opt-out 边界）、`log_level`、`log_file`（logfmt、按天轮转） |
 | `[paths]` | `workspace_root`（干净主副本）、`worktree_root`、`state_dir` |
 | `[projects]` | 显式 `items[]`（推荐）或 `scan_dir` 自动扫描含 `.git` 的子目录 |
-| `[worktree]` | `branch_prefix`（默认 `opencode/`）、`end_of_session`、`remote`、`stale_days` |
-| `[inject]` | 每轮上下文模板，占位符 `{project_id}` `{project_name}` `{workdir}` `{branch}` |
-| `[guard]` | `reject_on_violation`、额外 `deny_paths` / `allow_paths` glob 模式 |
+| `[worktree]` | `branch_prefix`、`end_of_session`（keep/push/cleanup）、`remote`、`stale_days`、`on_switch` 命令 |
+| `[inject]` | 模板（占位符 `{project_id}` `{project_name}` `{workdir}` `{branch}`）、`list_projects`、`agents_md`、`skills` |
+| `[guard]` | `reject_on_violation`、`deny_paths` / `allow_paths` glob、`allow_dirs`（默认 `["/tmp"]`） |
 | `[permissions]` | 可选权限规则兜底（`yolo` 下被跳过） |
 | `[list]` | `list_project` 是否返回 `description` |
+
+日志以 logfmt 输出（`ts= level= logger= msg=`），可对接标准工具链（`grep 'logger=guard'`、jq、vector）。
 
 ## 搭配使用
 
@@ -105,7 +132,7 @@ opencode-relay 旨在与 opencode 生态中的其他插件互补，而不是替�
 
 - **[oh-my-opencode-slim](https://github.com/alvinunreal/oh-my-opencode-slim)** — Agent 与工具链调优、工作流打磨；relay 在其之上提供项目隔离。
 - **[magic-context](https://github.com/cortexkit/magic-context)** — 长期项目记忆与会话连续性；relay 在 Agent 跨项目工作时保障工作区安全。
-- **[cc-connect](https://github.com/chenhg5/cc-connect)** — IM（企业微信）桥接，驱动常驻 home 目录会话；relay 把这条单一会话变成按项目隔离的独立 worktree，Agent 通过 `switch_project` 切换项目。
+- **[cc-connect](https://github.com/chenhg5/cc-connect)** — IM（企业微信）桥接，驱动常驻 home 目录会话；relay 把这条单一会话变成按项目隔离的独立 worktree。
 
 三者与 relay 一样通过 opencode 配置中的同一个 `plugin` 数组加载。组合起来，你就能得到一条持久、带记忆、能在多个项目间安全工作、且只需一次 IM 对话的 Agent。
 

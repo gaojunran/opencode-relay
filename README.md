@@ -2,51 +2,76 @@
 
 [**中文**](README.zh-CN.md)
 
-An [opencode](https://opencode.ai) plugin that turns a single persistent session into a multi-project development hub. The agent stays in one "home" session and switches between projects through an explicit `switch_project` tool. Every switch creates a dedicated git worktree per session, so multiple sessions can work on the same project in parallel without any locking.
+**One persistent session, many projects, zero conflicts.**
 
-> **Current status**: actively developed. `list_project`, `switch_project`, `register_project`, `leave_project`, worktree lifecycle, guard interception, smart path rewriting, `cd` escape blocking and cleanup are implemented and tested; cc-connect (WeCom/WeChat Work bridge) integration is planned.
+opencode-relay is an [opencode](https://opencode.ai) plugin that turns a single home session into a multi-project development hub. The agent never leaves its session and never touches a main copy: every `switch_project` gives it a dedicated git worktree, the main copy stays clean forever, and a tool-level guard makes it physically impossible to escape.
 
-## Why
+It is designed for IM-driven agents (WeCom/WeChat Work via cc-connect, `work_dir = home`, `mode = "yolo"`), but works the same in any opencode session.
 
-- **One session, many projects**: no more creating a new session per project or juggling `/dir`. The agent calls `switch_project` and gets a real working directory back.
-- **Parallel sessions, zero conflicts**: each switch creates an independent git worktree on a unique branch (`opencode/<sessionID>`). No shared working tree, no lock files. The main copy in `~/workspace/<project>` stays clean forever.
-- **Agent-proof by design**: project paths are never exposed through `list_project`, so the agent cannot accidentally write to the main copy. A `tool.execute.before` hook hard-rejects any file/bash call that escapes the current worktree — including `cd` targets inside a bash command.
-- **Forgiving, not just blocking**: relative paths are resolved against the project worktree (not the session directory) and rewritten to absolute paths automatically, so the agent can work naturally.
-- **IM-friendly**: designed to sit behind cc-connect, which bridges WeCom conversations into fixed-home opencode sessions (`work_dir = home`, `mode = "yolo"`). The plugin does the project routing.
+## Core capabilities
 
-## Features
+### 1. Switch projects without leaving the session
 
-- `list_project` — returns only `{id, name}` (optionally `description`); repository paths stay hidden from the agent.
-- `switch_project({project_id})` — unconditionally creates (or reuses) a dedicated git worktree and returns its path as the new working directory.
-- `register_project({dir, id?, name?})` — registers a new project from any git repository path: validates it is a git repo, rejects duplicate remotes (already registered), moves the directory into the workspace root, and persists it in a dynamic registry.
-- `leave_project()` — exits the current project and returns to the unbound state; the worktree is kept, so switching back to the same project reuses it.
-- `cleanup_worktrees({dry_run})` — reaps worktrees inactive for `stale_days` (default 7); session history in the database is unaffected.
-- Per-round context injection via `experimental.chat.system.transform` — before switching, injects the project list and a guide to call `switch_project`/`register_project`; after switching, injects the current project, workdir and branch.
-- Smart path rewriting in `tool.execute.before` — relative paths resolve against the project worktree and are rewritten to absolute; bash without an explicit `workdir` defaults to the worktree; `cd` targets that escape the worktree (including bare `cd` and `cd ..`) are rejected with actionable messages.
-- Hard guard via `tool.execute.before` — rejects bash `workdir` or file paths outside the current worktree (yolo-mode independent).
-- End-of-session strategy via `dispose` — `keep` (default), `push` to a configured remote, or `cleanup` the worktree.
-- Opt-out short-circuit — the plugin refuses to load when the session directory is outside `[general].home` (defaults to `$HOME`).
-- Everything is config-driven through a single `config.toml` (`OPENCODE_RELAY_CONFIG` overrides the default path).
+The agent calls `switch_project({project_id})` and gets a real working directory back. No new session, no `/dir`, no cwd gymnastics.
 
-## Architecture
+- `list_project` — ids/names only; **repository paths stay invisible to the agent**
+- `switch_project` — unconditionally creates (or reuses) a dedicated worktree per session
+- `register_project({dir})` — registers any git repository: validates it, rejects duplicate remotes, moves it into the workspace
+- `leave_project` — back to the unbound state; the worktree is kept and reused on re-entry
+
+### 2. The main copy is untouchable
+
+The workspace root (`~/workspace/<project>`) is a clean baseline that the agent **never** writes to. Isolation is enforced at the tool layer, not by prompting:
+
+- Every switch creates an independent worktree with a unique branch (`opencode/<sessionID>`) — no shared working tree, no lock files, parallel sessions conflict-free
+- A `tool.execute.before` guard rejects any file/bash call that escapes the current worktree — **including inside `cd` targets** — and works under `yolo` mode
+- The workspace root is denied in every session state, even before any project is switched
+
+### 3. Forgiving, not just blocking
+
+The guard prefers fixing the call over rejecting it, so the agent works naturally:
+
+- Relative file paths are resolved **against the worktree** (not the session directory) and rewritten to absolute automatically
+- `bash` without an explicit `workdir` defaults to the worktree
+- `cd` targets that escape the worktree (bare `cd`, `cd ..`, `/etc`, ...) are rejected with actionable messages
+- Extra `deny_paths`/`allow_paths` globs and `allow_dirs` (e.g. `/tmp`) tune what stays reachable
+
+### 4. Project context follows the switch
+
+Because the session directory never changes, per-directory loading (AGENTS.md, skills, env hooks) would silently break. relay restores it:
+
+- Each round, `system.transform` injects the current project, workdir and branch — or the project list + a guide to switch/register when unbound
+- The worktree-root **AGENTS.md** (or CLAUDE.md/CONTEXT.md) is injected after switching
+- Project **skills** are listed so the agent can load them
+- An optional `on_switch` command (e.g. `mise env`, `direnv export bash`) dumps env vars that are injected into every `bash` call via `shell.env`
+
+### 5. Subagent-safe by default
+
+Task-spawned subagents get a clean context and their own sessionID. relay makes them inherit the parent's project state without being able to mutate it:
+
+- Guard, context injection and env work inside subagents against the **parent's** worktree
+- `switch_project` / `leave_project` / `register_project` / `cleanup_worktrees` are **rejected for subagent sessions**
+- The parent cannot switch projects while a subagent is still active — no orphan worktrees, no state races between parallel subagents
+
+## How it works
 
 ```
 WeCom user/group
    │  WS bot
    ▼
-cc-connect (v1.4.1, unmodified)
+cc-connect (unmodified)
    ├─ work_dir = home                 fixed home session
    ├─ mode = "yolo"                   no permission prompts
    └─ one opencode session per IM key, resumed via --session
    ▼
 opencode run (in-process server, spawned by cc-connect)
    └─ opencode-relay (this plugin)
-        ├─ list_project()             ids/names only, no paths
         ├─ switch_project(id)         unconditional per-session worktree
         ├─ register_project(dir)      register a new git project into workspace
         ├─ leave_project()            exit project, back to unbound state
         ├─ system.transform           inject project list / current project each round
-        ├─ tool.execute.before        hard guard + smart path rewriting + cd blocking
+        ├─ tool.execute.before        hard guard + path rewriting + cd blocking
+        ├─ shell.env                  restore project env (on_switch) per bash call
         ├─ dispose                    end-of-session: keep / push / cleanup
         └─ config:  ~/.config/opencode-relay/config.toml
              state: ~/.opencode/state/<sessionID>.json
@@ -54,7 +79,7 @@ opencode run (in-process server, spawned by cc-connect)
 ~/workspace/<project>                 clean main copy, never written by the agent
 ```
 
-Session state lives in external files (`~/.opencode/state/<sessionID>.json`) because V2 opencode sessions expose no metadata channel. State is keyed per session, so multiple IM sessions never collide.
+Session state lives in external files keyed per sessionID, so multiple IM sessions never collide. End-of-session is `keep` by default; `push` auto-pushes the current branch (so you can rename it to something semantic before finishing) and `cleanup` removes the worktree. `cleanup_worktrees` reaps stale worktrees after `stale_days` — session history in the database is unaffected.
 
 ## Installation
 
@@ -82,7 +107,7 @@ Clone or copy the plugin into opencode's user-level plugin directory, e.g. `~/.c
 
 ### Bridge with cc-connect (optional)
 
-Set `[projects.agent.options] work_dir = "<home>"` and `mode = "yolo"` in cc-connect's config. cc-connect needs no code changes.
+Set `work_dir = "<home>"` and `mode = "yolo"` in cc-connect's config, and add the plugin to opencode's `plugin` array. cc-connect needs no code changes.
 
 ## Configuration
 
@@ -90,24 +115,26 @@ See [config.example.toml](config.example.toml) for a fully commented example. Al
 
 | Section | Purpose |
 |---|---|
-| `[general]` | `enabled`, `home` (default `$HOME`, opt-out boundary), `log_level` (`debug`/`info`/`warn`/`error`) |
+| `[general]` | `enabled`, `home` (default `$HOME`, opt-out boundary), `log_level`, `log_file` (logfmt, daily-rotated) |
 | `[paths]` | `workspace_root` (clean main copies), `worktree_root`, `state_dir` |
 | `[projects]` | explicit `items[]` (recommended) or `scan_dir` auto-scan for `.git` subdirectories |
-| `[worktree]` | `branch_prefix` (default `opencode/`), `end_of_session`, `remote`, `stale_days` |
-| `[inject]` | per-round context template with `{project_id}` `{project_name}` `{workdir}` `{branch}` placeholders |
-| `[guard]` | `reject_on_violation`, extra `deny_paths` / `allow_paths` glob patterns |
+| `[worktree]` | `branch_prefix`, `end_of_session` (keep/push/cleanup), `remote`, `stale_days`, `on_switch` command |
+| `[inject]` | template with `{project_id}` `{project_name}` `{workdir}` `{branch}`, `list_projects`, `agents_md`, `skills` |
+| `[guard]` | `reject_on_violation`, `deny_paths` / `allow_paths` globs, `allow_dirs` (default `["/tmp"]`) |
 | `[permissions]` | optional ruleset passthrough as a last-resort backstop (skipped under `yolo`) |
 | `[list]` | include `description` in `list_project` output |
 
+Logs are emitted as logfmt (`ts= level= logger= msg=`) so they compose with standard tooling (`grep 'logger=guard'`, jq, vector).
+
 ## Works well with
 
-opencode-relay is designed to complement other opencode ecosystem plugins rather than replace them:
+opencode-relay complements other opencode ecosystem plugins rather than replacing them:
 
 - **[oh-my-opencode-slim](https://github.com/alvinunreal/oh-my-opencode-slim)** — agent/tooling tuning and workflow polish; relay adds project isolation on top.
 - **[magic-context](https://github.com/cortexkit/magic-context)** — long-term project memory and session continuity; relay keeps the workspace safe while the agent works across projects.
-- **[cc-connect](https://github.com/chenhg5/cc-connect)** — IM (WeCom/WeChat Work) bridge that drives a persistent home-directory session; relay turns that single session into per-project isolated worktrees, with the agent switching projects via `switch_project`.
+- **[cc-connect](https://github.com/chenhg5/cc-connect)** — IM (WeCom/WeChat Work) bridge that drives a persistent home-directory session; relay turns that single session into per-project isolated worktrees.
 
-All three load alongside relay through the same `plugin` array in your opencode config. Combined, they give you a persistent, memory-backed agent that safely works across multiple projects from one IM conversation.
+All three load alongside relay through the same `plugin` array. Combined, they give you a persistent, memory-backed agent that safely works across multiple projects from one IM conversation.
 
 ## Development
 
