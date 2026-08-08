@@ -506,6 +506,48 @@ export function runOnSwitch(
   return env;
 }
 
+/** Resolve the base ref a worktree branch is forked from. A plain string is used as-is;
+ *  `{command}` runs in the main copy and uses its trimmed stdout; anything else / failure
+ *  falls back to the main copy's HEAD. */
+function resolveBaseRef(project: ProjectItem, log: RelayLogger): string {
+  const bb = project.base_branch;
+  if (typeof bb === "string" && bb) {
+    log.debug("switch_project", `base_branch (string): ${bb}`);
+    return bb;
+  }
+  if (bb !== undefined && typeof bb !== "string" && typeof bb.command === "string" && bb.command) {
+    log.info("switch_project", `base_branch (command): ${bb.command}`);
+    try {
+      const res = spawnSync(bb.command, {
+        cwd: project.repo_path,
+        shell: true,
+        encoding: "utf8",
+        timeout: 30000,
+        maxBuffer: 1024 * 1024,
+      });
+      if (res.error) {
+        log.error("switch_project", `base_branch command spawn failed, falling back to HEAD: ${res.error.message}`);
+        return "HEAD";
+      }
+      if (res.status !== 0) {
+        log.warn("switch_project", `base_branch command exited ${res.status}, falling back to HEAD: ${truncate((res.stderr || "").slice(0, 300), 300)}`);
+        return "HEAD";
+      }
+      const ref = (res.stdout ?? "").trim().split("\n")[0].trim();
+      if (!ref) {
+        log.warn("switch_project", "base_branch command produced no output, falling back to HEAD");
+        return "HEAD";
+      }
+      log.info("switch_project", `base_branch resolved to: ${ref}`);
+      return ref;
+    } catch (err) {
+      log.error("switch_project", `base_branch command failed, falling back to HEAD: ${err instanceof Error ? err.message : String(err)}`);
+      return "HEAD";
+    }
+  }
+  return "HEAD";
+}
+
 function switchProject(
   config: RelayConfig,
   log: RelayLogger,
@@ -552,9 +594,10 @@ function switchProject(
     throw new Error(`worktree dir exists but is not a registered git worktree: ${worktreeDir}, inspect and clean it manually`);
   }
 
-  log.info("switch_project", `creating worktree: git worktree add --no-checkout -b ${branch} ${worktreeDir} (HEAD @ ${project.repo_path})`);
+  const baseRef = resolveBaseRef(project, log);
+  log.info("switch_project", `creating worktree: git worktree add --no-checkout -b ${branch} ${worktreeDir} (base ${baseRef} @ ${project.repo_path})`);
   try {
-    createWorktree({ repoPath: project.repo_path, worktreeDir, branch }, log);
+    createWorktree({ repoPath: project.repo_path, worktreeDir, branch, baseRef }, log);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error("switch_project", `worktree creation failed: ${message}`);

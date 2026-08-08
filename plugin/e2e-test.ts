@@ -33,6 +33,14 @@ fs.writeFileSync(
 )
 execFileSync("git", ["add", "."], { cwd: repoPath })
 execFileSync("git", ["commit", "-qm", "init"], { cwd: repoPath })
+// Create a dev branch one commit ahead of the default branch, so base_branch fork
+// points become observable: a worktree forked from "dev" contains dev.txt, one forked
+// from the default HEAD does not.
+execFileSync("git", ["checkout", "-qb", "dev"], { cwd: repoPath })
+fs.writeFileSync(path.join(repoPath, "dev.txt"), "dev marker\n")
+execFileSync("git", ["add", "."], { cwd: repoPath })
+execFileSync("git", ["commit", "-qm", "dev"], { cwd: repoPath })
+execFileSync("git", ["checkout", "-q", "-"], { cwd: repoPath })
 
 // Write the test config
 const conf = `[general]
@@ -46,6 +54,22 @@ state_dir = "${stateDir}"
 id = "projA"
 name = "projA"
 repo_path = "${repoPath}"
+# base_branch fork-point tests: same repo, different fork bases
+[[projects.items]]
+id = "projBase"
+name = "projBase"
+repo_path = "${repoPath}"
+base_branch = "dev"
+[[projects.items]]
+id = "projBaseCmd"
+name = "projBaseCmd"
+repo_path = "${repoPath}"
+base_branch = { command = "echo dev" }
+[[projects.items]]
+id = "projBaseFail"
+name = "projBaseFail"
+repo_path = "${repoPath}"
+base_branch = { command = "false" }
 [worktree]
 branch_prefix = "opencode/"
 end_of_session = "keep"
@@ -455,6 +479,37 @@ console.log("chat.message callable ✓")
   }
   if (!subRejected) throw new Error("subagent guard did not enforce parent worktree boundary!")
   console.log("subagent guard enforces parent worktree boundary ✓")
+}
+
+// 12. base_branch: worktrees fork from the configured base ref instead of the main copy's HEAD.
+// projBase uses a plain string ("dev"), projBaseCmd uses a command whose stdout is the ref,
+// projBaseFail uses a failing command that must fall back to HEAD. The dev branch contains
+// dev.txt; the default HEAD does not, so the fork point is observable via dev.txt presence.
+console.log("\n== base_branch fork point ==")
+{
+  const wtBase = await hooks.tool!.switch_project!.execute(
+    { project_id: "projBase" },
+    { sessionID: "ses_base1", directory: home } as any,
+  )
+  const baseOut = typeof wtBase === "string" ? JSON.parse(wtBase) : JSON.parse((wtBase as any).output)
+  if (!fs.existsSync(path.join(baseOut.workdir, "dev.txt"))) throw new Error("base_branch string 'dev' did not fork from dev branch!")
+  console.log("base_branch string forks from dev ✓")
+
+  const wtCmd = await hooks.tool!.switch_project!.execute(
+    { project_id: "projBaseCmd" },
+    { sessionID: "ses_base2", directory: home } as any,
+  )
+  const cmdOut = typeof wtCmd === "string" ? JSON.parse(wtCmd) : JSON.parse((wtCmd as any).output)
+  if (!fs.existsSync(path.join(cmdOut.workdir, "dev.txt"))) throw new Error("base_branch command did not fork from dev branch!")
+  console.log("base_branch command forks from dev ✓")
+
+  const wtFail = await hooks.tool!.switch_project!.execute(
+    { project_id: "projBaseFail" },
+    { sessionID: "ses_base3", directory: home } as any,
+  )
+  const failOut = typeof wtFail === "string" ? JSON.parse(wtFail) : JSON.parse((wtFail as any).output)
+  if (fs.existsSync(path.join(failOut.workdir, "dev.txt"))) throw new Error("base_branch failing command should fall back to HEAD (no dev.txt)!")
+  console.log("base_branch failing command falls back to HEAD ✓")
 }
 
 console.log("\n✅ P1 all verifications passed")

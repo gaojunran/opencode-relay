@@ -38,24 +38,27 @@ export function execGit(
   }
 }
 
-/** Unconditionally create an isolated worktree: git worktree add --no-checkout -b <branch> <dir> <repo HEAD>, then reset to materialize the working tree */
+/** Unconditionally create an isolated worktree: git worktree add --no-checkout -b <branch> <dir> <baseRef>, then reset to materialize the working tree */
 export function createWorktree(
   opts: {
     repoPath: string;
     worktreeDir: string;
     branch: string;
+    /** Base ref the new branch is forked from; defaults to the main copy's HEAD */
+    baseRef?: string;
   },
   logger?: RelayLogger,
 ): void {
   fs.mkdirSync(path.dirname(opts.worktreeDir), { recursive: true });
+  const baseRef = opts.baseRef ?? "HEAD";
   execGit(
-    ["worktree", "add", "--no-checkout", "-b", opts.branch, opts.worktreeDir, "HEAD"],
+    ["worktree", "add", "--no-checkout", "-b", opts.branch, opts.worktreeDir, baseRef],
     { cwd: opts.repoPath },
     logger,
   );
   // After --no-checkout the worktree is empty (only .git); reset --hard materializes files
   // (aligned with the native flow in opencode worktree/index.ts:237)
-  execGit(["reset", "--hard", "HEAD"], { cwd: opts.worktreeDir }, logger);
+  execGit(["reset", "--hard", baseRef], { cwd: opts.worktreeDir }, logger);
 }
 
 /** Current branch checked out in a worktree (empty string when detached); null when the dir is not a git worktree */

@@ -8,11 +8,17 @@ import { encode } from "@jclem/logfmt2";
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type EndOfSessionStrategy = "keep" | "push" | "cleanup";
 
+/** Base branch for worktrees of this project. A plain string is used directly as the ref
+ *  (e.g. "main"); `{ command = "..." }` runs the command in the main copy and uses its
+ *  trimmed stdout (e.g. `git symbolic-ref refs/remotes/origin/HEAD`). Empty/absent = "HEAD". */
+export type BaseBranch = string | { command: string };
+
 export interface ProjectItem {
   id: string;
   name: string;
   repo_path: string;
   description?: string;
+  base_branch?: BaseBranch;
 }
 
 export interface PermissionRule {
@@ -291,11 +297,18 @@ function buildConfig(raw: TomlTable): RelayConfig {
       warnTTY(`[opencode-relay] project "${id}" is missing repo_path, ignored from registry`);
       continue;
     }
+    const bb = t.base_branch;
     items.push({
       id,
       name: asString(t.name, id),
       repo_path: repoPath,
       description: typeof t.description === "string" ? t.description : undefined,
+      base_branch:
+        typeof bb === "string" && bb
+          ? bb
+          : typeof bb === "object" && bb !== null && !Array.isArray(bb) && typeof (bb as TomlTable).command === "string"
+            ? { command: (bb as TomlTable).command as string }
+            : undefined,
     });
   }
 
@@ -437,6 +450,12 @@ export function readDynamicProjects(config: RelayConfig): ProjectItem[] {
         name: typeof v.name === "string" ? (v.name as string) : (v.id as string),
         repo_path: v.repo_path as string,
         description: typeof v.description === "string" ? (v.description as string) : undefined,
+        base_branch:
+          typeof v.base_branch === "string" && v.base_branch
+            ? (v.base_branch as string)
+            : typeof v.base_branch === "object" && v.base_branch !== null && typeof (v.base_branch as Record<string, unknown>).command === "string"
+              ? { command: (v.base_branch as Record<string, unknown>).command as string }
+              : undefined,
       }));
   } catch {
     return [];

@@ -41,6 +41,12 @@ id = "relay"
 name = "opencode-relay"
 repo_path = "~/workspace/relay"
 description = "The opencode-relay project itself"
+# Base branch worktrees fork from. Empty/absent = the main copy's current HEAD.
+# A plain string is used directly as the git ref:
+# base_branch = "main"
+# A command runs in the main copy and its trimmed stdout is used as the ref
+# (e.g. the repo's default remote branch); on failure it falls back to HEAD:
+# base_branch = { command = "git symbolic-ref refs/remotes/origin/HEAD" }
 
 [[projects.items]]
 id = "projA"

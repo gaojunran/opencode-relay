@@ -169,9 +169,10 @@ tool.switch_project({ project_id: string })
 
 1. 查配置注册表 `[projects]` → `repo_path`（主副本位置）。
 2. **无条件创建独立 git worktree**：
-   - `git worktree add --no-checkout -b <branch_prefix><sessionID 全量 sanitized> <worktree_dir> <repo_path 的 HEAD>`
+   - `git worktree add --no-checkout -b <branch_prefix><sessionID 全量 sanitized> <worktree_dir> <base_ref>`
    - worktree_dir 约定：`<config.worktree_root>/<project_id>/<sessionID 全量 sanitized>`（默认 home 内，免 external_directory 授权）。
    - 分支名 `<branch_prefix><sessionID 全量 sanitized>`（默认 `opencode/` 前缀）天然唯一（会话 ID 唯一），多会话同项目各自独立分支，零冲突。
+   - **base_ref（`[projects].items[].base_branch`，项目级）**：缺省/空 = 主副本当前 HEAD；字符串（如 `"main"`）直接作 ref；`{ command = "git ..." }` 在主副本 cwd 执行、取 stdout 首行作 ref，失败降级 HEAD。三种形态均实测（e2e-test 12 号场景）。
 3. 写 `<config.state_dir>/<sessionID>.json`，返回工作目录：
    ```
    → { "workdir": "<worktree_dir>", "project_id": "projA" }
