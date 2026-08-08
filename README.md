@@ -43,7 +43,7 @@ Because the session directory never changes, per-directory loading (AGENTS.md, s
 - Each round, `system.transform` injects the current project, workdir and branch — or the project list + a guide to switch/register when unbound
 - The worktree-root **AGENTS.md** (or CLAUDE.md/CONTEXT.md) is injected after switching
 - Project **skills** are listed so the agent can load them
-- An optional `on_switch` command (e.g. `mise env`, `direnv export bash`) dumps env vars that are injected into every `bash` call via `shell.env`
+- Optional `on_switch` commands (an array, e.g. `["mise env", "direnv export bash"]`) dump env vars that are merged and injected into every `bash` call via `shell.env`
 
 ### 5. Subagent-safe by default
 
@@ -118,7 +118,7 @@ See [config.example.toml](config.example.toml) for a fully commented example. Al
 | `[general]` | `enabled`, `home` (default `$HOME`, opt-out boundary), `log_level`, `log_file` (logfmt, daily-rotated) |
 | `[paths]` | `workspace_root` (clean main copies), `worktree_root`, `state_dir` |
 | `[projects]` | explicit `items[]` (recommended) or `scan_dir` auto-scan for `.git` subdirectories |
-| `[worktree]` | `branch_prefix`, `end_of_session` (keep/push/cleanup), `remote`, `stale_days`, `on_switch` command |
+| `[worktree]` | `branch_prefix`, `end_of_session` (keep/push/cleanup), `remote`, `stale_days`, `on_switch` (command array) |
 | `[inject]` | template with `{project_id}` `{project_name}` `{workdir}` `{branch}`, `list_projects`, `agents_md`, `skills` |
 | `[guard]` | `reject_on_violation`, `deny_paths` / `allow_paths` globs, `allow_dirs` (default `["/tmp"]`) |
 | `[permissions]` | optional ruleset passthrough as a last-resort backstop (skipped under `yolo`) |

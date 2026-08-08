@@ -467,7 +467,8 @@ export function parseEnvDump(text: string): Record<string, string> {
 }
 
 /**
- * Run the configured on_switch command in the worktree and capture its env dump.
+ * Run the configured on_switch commands (in order) in the worktree and capture their env
+ * dumps, merged into one env record (later commands override same-named keys).
  * {{dir}} is replaced with the worktree path. Failures are logged and swallowed so a
  * misconfigured command never blocks the switch.
  */
@@ -476,27 +477,32 @@ export function runOnSwitch(
   log: RelayLogger,
   workdir: string,
 ): Record<string, string> {
-  const cmd = config.worktree.on_switch;
-  if (!cmd) return {};
-  const expanded = cmd.replace(/\{\{dir\}\}/g, workdir);
-  log.info("on_switch", `running in ${workdir}: ${expanded}`);
-  const res = spawnSync(expanded, {
-    cwd: workdir,
-    shell: true,
-    encoding: "utf8",
-    timeout: 30000,
-    maxBuffer: 1024 * 1024,
-  });
-  if (res.error) {
-    log.error("on_switch", `spawn failed: ${res.error.message}`);
-    return {};
+  const cmds = config.worktree.on_switch;
+  if (!cmds || cmds.length === 0) return {};
+  const env: Record<string, string> = {};
+  for (const cmd of cmds) {
+    const expanded = cmd.replace(/\{\{dir\}\}/g, workdir);
+    log.info("on_switch", `running in ${workdir}: ${expanded}`);
+    const res = spawnSync(expanded, {
+      cwd: workdir,
+      shell: true,
+      encoding: "utf8",
+      timeout: 30000,
+      maxBuffer: 1024 * 1024,
+    });
+    if (res.error) {
+      log.error("on_switch", `spawn failed: ${res.error.message}`);
+      continue;
+    }
+    if (res.status !== 0) {
+      log.warn("on_switch", `command exited ${res.status}: ${truncate((res.stderr || res.stdout || "").slice(0, 500), 500)}`);
+      continue;
+    }
+    const parsed = parseEnvDump(res.stdout ?? "");
+    Object.assign(env, parsed);
+    log.debug("on_switch", `captured ${Object.keys(parsed).length} env vars from: ${expanded}`);
   }
-  if (res.status !== 0) {
-    log.warn("on_switch", `command exited ${res.status}: ${truncate((res.stderr || res.stdout || "").slice(0, 500), 500)}`);
-    return {};
-  }
-  const env = parseEnvDump(res.stdout ?? "");
-  log.debug("on_switch", `captured ${Object.keys(env).length} env vars`);
+  log.debug("on_switch", `merged ${Object.keys(env).length} env vars across ${cmds.length} commands`);
   return env;
 }
 

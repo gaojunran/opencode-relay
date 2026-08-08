@@ -49,7 +49,7 @@ repo_path = "${repoPath}"
 [worktree]
 branch_prefix = "opencode/"
 end_of_session = "keep"
-on_switch = "echo PROJ_ENV_VAR=from-on-switch"
+on_switch = ["echo PROJ_ENV_VAR=from-on-switch", "echo SECOND_ENV_VAR=from-second-cmd"]
 [inject]
 enabled = true
 template = "Current project: {project_name} ({project_id}), workdir: {workdir}, branch: {branch}."
@@ -361,14 +361,14 @@ console.log("\n== on_switch env + shell.env + AGENTS.md/skill injection ==")
 // worktree checkout carries them. After 8c the session state was rewritten by switchProject,
 // which runs on_switch and stores its env dump in state.env.
 const stateAfterSwitch = JSON.parse(fs.readFileSync(path.join(stateDir, "sesabc123xyz.json"), "utf8"))
-if (!stateAfterSwitch.env || stateAfterSwitch.env.PROJ_ENV_VAR !== "from-on-switch") {
+if (!stateAfterSwitch.env || stateAfterSwitch.env.PROJ_ENV_VAR !== "from-on-switch" || stateAfterSwitch.env.SECOND_ENV_VAR !== "from-second-cmd") {
   throw new Error(`on_switch env not captured: ${JSON.stringify(stateAfterSwitch.env)}`)
 }
 console.log("on_switch env captured in session state ✓")
 // shell.env hook injects the captured env on every bash spawn
 const envOut: { env: Record<string, string> } = { env: {} }
 await hooks2["shell.env"]!({ sessionID: "ses_abc123xyz", cwd: workdir, callID: "c31" }, envOut)
-if (envOut.env.PROJ_ENV_VAR !== "from-on-switch") throw new Error("shell.env did not inject on_switch env!")
+if (envOut.env.PROJ_ENV_VAR !== "from-on-switch" || envOut.env.SECOND_ENV_VAR !== "from-second-cmd") throw new Error("shell.env did not inject on_switch env!")
 console.log("shell.env injects project env ✓")
 // system.transform injects worktree AGENTS.md content
 const sysOut6: { system: string[] } = { system: [] }

@@ -43,7 +43,7 @@ workspace 根（`~/workspace/<project>`）是干净基线，Agent **永远不会
 - 每轮 `system.transform` 注入当前项目、工作目录与分支；未绑定状态则注入项目清单并引导 switch/register
 - 切换后注入 worktree 根的 **AGENTS.md**（或 CLAUDE.md/CONTEXT.md）
 - 列出项目 **skills**，供 Agent 用 skill 工具加载
-- 可选的 `on_switch` 命令（如 `mise env`、`direnv export bash`）dump 环境变量，经 `shell.env` 注入每次 bash 调用
+- 可选的 `on_switch` 命令数组（如 `["mise env", "direnv export bash"]`）dump 环境变量，合并后经 `shell.env` 注入每次 bash 调用
 
 ### 5. 子代理默认安全
 
@@ -118,7 +118,7 @@ cp config.example.toml ~/.config/opencode-relay/config.toml
 | `[general]` | `enabled`、`home`（默认 `$HOME`，opt-out 边界）、`log_level`、`log_file`（logfmt、按天轮转） |
 | `[paths]` | `workspace_root`（干净主副本）、`worktree_root`、`state_dir` |
 | `[projects]` | 显式 `items[]`（推荐）或 `scan_dir` 自动扫描含 `.git` 的子目录 |
-| `[worktree]` | `branch_prefix`、`end_of_session`（keep/push/cleanup）、`remote`、`stale_days`、`on_switch` 命令 |
+| `[worktree]` | `branch_prefix`、`end_of_session`（keep/push/cleanup）、`remote`、`stale_days`、`on_switch`（命令数组） |
 | `[inject]` | 模板（占位符 `{project_id}` `{project_name}` `{workdir}` `{branch}`）、`list_projects`、`agents_md`、`skills` |
 | `[guard]` | `reject_on_violation`、`deny_paths` / `allow_paths` glob、`allow_dirs`（默认 `["/tmp"]`） |
 | `[permissions]` | 可选权限规则兜底（`yolo` 下被跳过） |

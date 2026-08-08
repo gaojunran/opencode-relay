@@ -66,13 +66,13 @@ end_of_session = "keep"
 remote = "origin"
 # Inactivity reclaim threshold (days): a worktree whose last activity exceeds this is considered reclaimable (section 4.8)
 stale_days = 7
-# Command run once when a project is switched, with the worktree as cwd. Its stdout is parsed as
-# an env dump (KEY=VALUE / export KEY=VALUE lines, e.g. `mise env` or `direnv export bash`) and
-# injected into every bash invocation of the session via the shell.env hook. {{dir}} is replaced
-# with the worktree path. Failures are logged and never block the switch.
-# on_switch = "mise env"
-# on_switch = "direnv export bash"
-on_switch = ""
+# Commands run (in order) once when a project is switched, with the worktree as cwd. Each
+# command's stdout is parsed as an env dump (KEY=VALUE / export KEY=VALUE lines, e.g. `mise env`
+# or `direnv export bash`) and merged into the session env, injected into every bash invocation
+# via the shell.env hook (later commands override same-named keys). {{dir}} is replaced with the
+# worktree path. Failures are logged and never block the switch.
+# on_switch = ["mise env", "direnv export bash"]
+on_switch = []
 
 # ---------- Context injection ----------
 
