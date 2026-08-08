@@ -17,7 +17,14 @@ export function execGit(
 ): string {
   logger?.debug("git", `exec: ${args.join(" ")} (cwd: ${opts.cwd ?? process.cwd()})`);
   try {
-    const out = execFileSync("git", args, { cwd: opts.cwd, encoding: "utf8" }).trim();
+    // stdio: ["ignore","pipe","pipe"] so git's stderr (e.g. "Preparing worktree...")
+    // is captured instead of leaking to this process's stderr, which cc-connect reads
+    // as an agent process error.
+    const out = execFileSync("git", args, {
+      cwd: opts.cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
     logger?.debug("git", `output: ${out.length > 200 ? out.slice(0, 200) + "..." : out}`);
     return out;
   } catch (err) {

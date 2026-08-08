@@ -41,6 +41,13 @@ export interface RelayLogger {
 
 // ---------- Logging ----------
 
+/** Console warning used before the logger exists (loadConfig phase). TTY-gated for the
+ *  same reason as createLogger's tee: cc-connect parses the plugin process's stdout/stderr
+ *  as a JSON event stream, and stray console output corrupts it. */
+function warnTTY(msg: string): void {
+  if (process.stdout.isTTY) console.warn(msg);
+}
+
 const LOG_THRESHOLD: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 /** Daily-rotated log file writer. Append-only, never throws (a failed log write must not
@@ -68,7 +75,10 @@ export function createLogger(level: string, logDir = ""): RelayLogger {
   const emit = (min: number, name: LogLevel, method: "log" | "warn" | "error", source: string, msg: string) => {
     if (threshold <= min) {
       const line = encode({ ts: new Date().toISOString(), level: name, logger: source, msg });
-      console[method](line);
+      // Only tee to console when attached to a terminal. Under cc-connect / opencode run
+      // the plugin process's stdout/stderr are parsed as a JSON event stream, so console
+      // output would corrupt it (observed as cc-connect "process error" / "JSON parsing failed").
+      if (process.stdout.isTTY) console[method](line);
       writeFile?.(line);
     }
   };
@@ -278,7 +288,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
     const id = asString(t.id, "");    if (!id) continue;
     const repoPath = asString(t.repo_path, "");
     if (!repoPath) {
-      console.warn(`[opencode-relay] project "${id}" is missing repo_path, ignored from registry`);
+      warnTTY(`[opencode-relay] project "${id}" is missing repo_path, ignored from registry`);
       continue;
     }
     items.push({
@@ -380,7 +390,7 @@ function readConfigFromDisk(): RelayConfig {
     text = fs.readFileSync(file, "utf8");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    console.warn(
+    warnTTY(
       `[opencode-relay] ${code === "ENOENT" ? "config file not found" : "failed to read config"}, using defaults: ${file} (${String(err)})`,
     );
     return buildConfig({});
@@ -388,7 +398,7 @@ function readConfigFromDisk(): RelayConfig {
   try {
     return buildConfig(parseToml(text));
   } catch (err) {
-    console.warn(`[opencode-relay] failed to parse config, using defaults: ${file} (${String(err)})`);
+    warnTTY(`[opencode-relay] failed to parse config, using defaults: ${file} (${String(err)})`);
     return buildConfig({});
   }
 }
@@ -453,7 +463,7 @@ export function getProjectRegistry(config: RelayConfig): ProjectItem[] {
   try {
     entries = fs.readdirSync(scanDir, { withFileTypes: true });
   } catch (err) {
-    console.warn(`[opencode-relay] failed to scan project dir: ${scanDir} (${String(err)})`);
+    warnTTY(`[opencode-relay] failed to scan project dir: ${scanDir} (${String(err)})`);
     return [];
   }
   return entries
