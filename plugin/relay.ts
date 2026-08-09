@@ -476,8 +476,9 @@ export function runOnSwitch(
   config: RelayConfig,
   log: RelayLogger,
   workdir: string,
+  cmdsOverride?: string[],
 ): Record<string, string> {
-  const cmds = config.worktree.on_switch;
+  const cmds = cmdsOverride && cmdsOverride.length > 0 ? cmdsOverride : config.worktree.on_switch;
   if (!cmds || cmds.length === 0) return {};
   const env: Record<string, string> = {};
   for (const cmd of cmds) {
@@ -590,7 +591,7 @@ function switchProject(
     );
     if (registered) {
       log.warn("switch_project", `worktree dir exists but state is missing, reusing registered dir: ${worktreeDir} (branch=${registered.branch ?? branch})`);
-      const env = runOnSwitch(config, log, worktreeDir);
+      const env = runOnSwitch(config, log, worktreeDir, project.on_switch);
       const state: SessionState = {
         project_id: project.id,
         project_name: project.name,
@@ -616,7 +617,7 @@ function switchProject(
   }
   log.info("switch_project", `worktree created: ${worktreeDir} (branch=${branch})`);
 
-  const env = runOnSwitch(config, log, worktreeDir);
+  const env = runOnSwitch(config, log, worktreeDir, project.on_switch);
   const state: SessionState = {
     project_id: project.id,
     project_name: project.name,

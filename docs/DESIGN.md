@@ -233,7 +233,7 @@ bash 工具请用 workdir="{workdir}" 参数，文件操作请用绝对路径。
 **背景（exp-4 源码实证）**：bash 工具每次调用是独立进程（`shell -c`，非 login 不读 rc，`tool/shell.ts:293-310`），继承 opencode 进程 env（`shellEnv`: `{...process.env, ...hook注入}`，`:416-426`）。opencode 无任何 direnv/mise 集成。因此"进入目录才激活的工具链环境"（mise fnox、.envrc 等）在 worktree 里默认不生效。
 
 **机制**：
-1. `[worktree].on_switch`（默认空数组）配置命令数组，顺序执行；`switch_project` 创建/复用 worktree 后在 worktree 内逐条执行，`{{dir}}` 替换为 worktree 路径，每条 stdout 按 `KEY=VALUE` / `export KEY=VALUE` 行解析（`parseEnvDump`，兼容 `mise env` / `direnv export bash` 输出）合并进会话状态 `state.env`（后者覆盖同名 key）。任一条失败仅记日志，绝不阻塞 switch。
+1. `[worktree].on_switch`（默认空数组）配置命令数组，顺序执行；`switch_project` 创建/复用 worktree 后在 worktree 内（cwd = worktree）逐条执行，`{{dir}}` 替换为 worktree 路径，每条 stdout 按 `KEY=VALUE` / `export KEY=VALUE` 行解析（`parseEnvDump`，兼容 `mise env` / `direnv export bash` 输出）合并进会话状态 `state.env`（后者覆盖同名 key）。任一条失败仅记日志，绝不阻塞 switch。**项目级覆盖**：`[projects].items[].on_switch`（数组）存在则该项目用项目级命令，否则回退全局 `[worktree].on_switch`（e2e-test 14 号场景实测）。
 2. `shell.env` hook（opencode 现存 API，`plugin/src/index.ts:270-273`）每次 bash spawn 前触发：按 sessionID 读 `state.env` 合并进 `output.env`。效果 = 每次 bash 调用都带项目环境（弥补 bash 独立进程无跨调用状态的缺口）。
 
 ```ts

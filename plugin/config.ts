@@ -23,6 +23,9 @@ export interface ProjectItem {
   /** Run `git fetch` in the main copy before creating a worktree, so base_branch /
    *  remote refs are current. Default true. */
   fetch?: boolean;
+  /** Project-level on_switch commands (run in the new worktree after switch_project,
+   *  env output merged into the session). Overrides [worktree].on_switch for this project. */
+  on_switch?: string[];
 }
 
 export interface PermissionRule {
@@ -170,6 +173,11 @@ function buildConfig(raw: TomlTable): RelayConfig {
             ? { command: (bb as TomlTable).command as string }
             : undefined,
       fetch: t.fetch !== false,
+      on_switch: Array.isArray(t.on_switch)
+        ? t.on_switch.map(String)
+        : typeof t.on_switch === "string" && t.on_switch
+          ? [t.on_switch]
+          : undefined,
     });
   }
 

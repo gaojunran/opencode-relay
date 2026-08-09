@@ -83,6 +83,11 @@ repo_path = "${repoPath}"
 base_branch = "dev"
 fetch = false
 [[projects.items]]
+id = "projProjSwitch"
+name = "projProjSwitch"
+repo_path = "${repoPath}"
+on_switch = ["echo PROJ_ON_SWITCH=from-project-level"]
+[[projects.items]]
 id = "projBaseCmd"
 name = "projBaseCmd"
 repo_path = "${repoPath}"
@@ -580,6 +585,25 @@ console.log("\n== fetch + semver base_branch ==")
   const noFetchOut = typeof wtNoFetch === "string" ? JSON.parse(wtNoFetch) : JSON.parse((wtNoFetch as any).output)
   if (!fs.existsSync(path.join(noFetchOut.workdir, "dev.txt"))) throw new Error("fetch=false project did not fork from local dev branch!")
   console.log("fetch=false skips fetch, uses local refs ✓")
+}
+
+// 14. project-level on_switch overrides the global [worktree].on_switch.
+console.log("\n== project-level on_switch ==")
+{
+  const wt = await hooks.tool!.switch_project!.execute(
+    { project_id: "projProjSwitch" },
+    { sessionID: "ses_projswitch1", directory: home } as any,
+  )
+  const out = typeof wt === "string" ? JSON.parse(wt) : JSON.parse((wt as any).output)
+  if (!fs.existsSync(out.workdir)) { console.error("DBG wt:", JSON.stringify(wt).slice(0, 400)); throw new Error("projProjSwitch worktree missing!") }
+  const state = JSON.parse(fs.readFileSync(path.join(stateDir, "sesprojswitch1.json"), "utf8"))
+  if (state.env?.PROJ_ON_SWITCH !== "from-project-level") {
+    throw new Error(`project-level on_switch env not captured: ${JSON.stringify(state.env)}`)
+  }
+  if (state.env?.PROJ_ENV_VAR !== undefined) {
+    throw new Error(`global on_switch leaked into project-level override: ${JSON.stringify(state.env)}`)
+  }
+  console.log("project-level on_switch overrides global ✓")
 }
 
 console.log("\n✅ P1 all verifications passed")
