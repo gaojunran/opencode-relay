@@ -152,7 +152,7 @@ function buildConfig(raw: TomlTable): RelayConfig {
   const items: ProjectItem[] = [];
   for (const t of asArray(projects.items).map((v) => asTable(v))) {
     const id = asString(t.id, "");    if (!id) continue;
-    const repoPath = asString(t.repo_path, "");
+    const repoPath = expandHome(asString(t.repo_path, ""));
     if (!repoPath) {
       warnTTY(`[opencode-relay] project "${id}" is missing repo_path, ignored from registry`);
       continue;
