@@ -149,6 +149,10 @@ bun run e2e-test.ts      # plugin boot + guard behavior
 
 Set `log_level = "debug"` to get detailed logs covering config loading, opt-out decisions, every git command, and every guard decision — enough to pinpoint issues from logs alone.
 
+## Known Limitations
+
+- **Branch checked out by another worktree fails to switch**: git worktrees enforce that a branch can be checked out by only one worktree at a time. A manual `git checkout <branch>` fails whenever that branch is currently checked out by any worktree — even an inactive one. This is a hard git constraint, not a plugin bug. A future improvement is planned so that at least inactive worktrees do not block the switch.
+
 ## Documentation
 
 - [docs/DESIGN.md](docs/DESIGN.md) — full design document (Chinese) with source-verified research on opencode hooks, worktree semantics and cc-connect integration.

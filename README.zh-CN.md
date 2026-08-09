@@ -149,6 +149,10 @@ bun run e2e-test.ts      # 插件启动 + guard 行为
 
 设置 `log_level = "debug"` 可获得详细日志：配置加载、opt-out 判定、每条 git 命令、每次 guard 拦截，出问题凭日志即可定位。
 
+## 已知限制
+
+- **分支被其他 worktree 占用时切换失败**：git worktree 强制一个分支同一时刻只能被一个 worktree 检出。手动 `git checkout <branch>` 时，只要该分支正被某个 worktree 检出——哪怕是不活跃的——就会失败。这是 git 的固有限制，不是插件缺陷。后续计划改进，至少让不活跃的 worktree 不再阻塞切换。
+
 ## 文档
 
 - [docs/DESIGN.md](docs/DESIGN.md) — 完整设计文档，含 opencode hooks、worktree 语义、cc-connect 集成的源码实证调研。
