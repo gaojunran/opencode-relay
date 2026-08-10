@@ -549,6 +549,45 @@ function resolveBaseRef(project: ProjectItem, log: RelayLogger): string {
   return "HEAD";
 }
 
+/** Point the main copy at the base ref after a worktree is forked from it, so the
+ *  baseline branch always reflects the most recent base_branch. origin/x refs prefer
+ *  the local branch of the same name and otherwise create a tracking branch. Never
+ *  blocks the switch: a failed checkout only warns (the worktree is already created). */
+function checkoutMainCopy(project: ProjectItem, baseRef: string, log: RelayLogger): void {
+  if (!baseRef || baseRef === "HEAD") {
+    log.debug("switch_project", `main copy stays on HEAD (base_ref default)`);
+    return;
+  }
+  let target = baseRef;
+  let track = false;
+  if (baseRef.startsWith("origin/")) {
+    const local = baseRef.slice("origin/".length);
+    try {
+      execGit(["rev-parse", "--verify", "--quiet", `refs/heads/${local}`], { cwd: project.repo_path }, log);
+      target = local;
+    } catch {
+      track = true;
+      target = baseRef;
+    }
+  }
+  let current = "";
+  try {
+    current = execGit(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: project.repo_path }, log);
+  } catch {
+    // detached HEAD or unborn branch; treat as "not on target"
+  }
+  if (current === target) {
+    log.debug("switch_project", `main copy already on ${target}`);
+    return;
+  }
+  try {
+    execGit(track ? ["checkout", "--track", target] : ["checkout", target], { cwd: project.repo_path }, log);
+    log.info("switch_project", `main copy checked out ${target}`);
+  } catch (err) {
+    log.warn("switch_project", `main copy checkout to ${target} failed, worktree unaffected: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function switchProject(
   config: RelayConfig,
   log: RelayLogger,
@@ -616,6 +655,7 @@ function switchProject(
     throw new Error(`Failed to create worktree (${project.name}): ${message}`);
   }
   log.info("switch_project", `worktree created: ${worktreeDir} (branch=${branch})`);
+  checkoutMainCopy(project, baseRef, log);
 
   const env = runOnSwitch(config, log, worktreeDir, project.on_switch);
   const state: SessionState = {

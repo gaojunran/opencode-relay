@@ -508,19 +508,25 @@ console.log("chat.message callable ✓")
   console.log("subagent guard enforces parent worktree boundary ✓")
 }
 
-// 12. base_branch: worktrees fork from the configured base ref instead of the main copy's HEAD.
-// projBase uses a plain string ("dev"), projBaseCmd uses a command whose stdout is the ref,
-// projBaseFail uses a failing command that must fall back to HEAD. The dev branch contains
-// dev.txt; the default HEAD does not, so the fork point is observable via dev.txt presence.
-console.log("\n== base_branch fork point ==")
+// 12. base_branch: worktrees fork from the configured base ref, and the main copy is
+// checked out to that base ref afterwards. projBase uses a plain string ("dev"),
+// projBaseCmd uses a command whose stdout is the ref, projBaseFail uses a failing
+// command that must fall back to the main copy's current HEAD. The dev branch contains
+// dev.txt; fork point is observable via dev.txt presence, and the main copy's branch is
+// verified directly via `git branch --show-current`.
+console.log("\n== base_branch fork point + main copy checkout ==")
 {
+  const mainBranch = (): string =>
+    execFileSync("git", ["branch", "--show-current"], { cwd: repoPath, encoding: "utf8" }).trim()
+
   const wtBase = await hooks.tool!.switch_project!.execute(
     { project_id: "projBase" },
     { sessionID: "ses_base1", directory: home } as any,
   )
   const baseOut = typeof wtBase === "string" ? JSON.parse(wtBase) : JSON.parse((wtBase as any).output)
   if (!fs.existsSync(path.join(baseOut.workdir, "dev.txt"))) throw new Error("base_branch string 'dev' did not fork from dev branch!")
-  console.log("base_branch string forks from dev ✓")
+  if (mainBranch() !== "dev") throw new Error(`main copy not checked out to dev after fork, on: ${mainBranch()}`)
+  console.log("base_branch string forks from dev + main copy on dev ✓")
 
   const wtCmd = await hooks.tool!.switch_project!.execute(
     { project_id: "projBaseCmd" },
@@ -528,15 +534,20 @@ console.log("\n== base_branch fork point ==")
   )
   const cmdOut = typeof wtCmd === "string" ? JSON.parse(wtCmd) : JSON.parse((wtCmd as any).output)
   if (!fs.existsSync(path.join(cmdOut.workdir, "dev.txt"))) throw new Error("base_branch command did not fork from dev branch!")
+  if (mainBranch() !== "dev") throw new Error(`main copy left dev after command base_branch, on: ${mainBranch()}`)
   console.log("base_branch command forks from dev ✓")
 
+  // Failing command falls back to the main copy's current HEAD (which is dev after the
+  // two switches above), verified by comparing the worktree HEAD commit to the main copy's.
   const wtFail = await hooks.tool!.switch_project!.execute(
     { project_id: "projBaseFail" },
     { sessionID: "ses_base3", directory: home } as any,
   )
   const failOut = typeof wtFail === "string" ? JSON.parse(wtFail) : JSON.parse((wtFail as any).output)
-  if (fs.existsSync(path.join(failOut.workdir, "dev.txt"))) throw new Error("base_branch failing command should fall back to HEAD (no dev.txt)!")
-  console.log("base_branch failing command falls back to HEAD ✓")
+  const mainHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoPath, encoding: "utf8" }).trim()
+  const wtHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: failOut.workdir, encoding: "utf8" }).trim()
+  if (mainHead !== wtHead) throw new Error(`fallback HEAD mismatch: main=${mainHead} worktree=${wtHead}`)
+  console.log("base_branch failing command falls back to main copy HEAD ✓")
 }
 
 // 13. fetch (default on) + semver base_branch: a command that picks the largest
