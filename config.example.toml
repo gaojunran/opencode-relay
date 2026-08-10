@@ -87,6 +87,9 @@ stale_days = 7
 # worktree path. Failures are logged and never block the switch.
 # on_switch = ["mise env", "direnv export bash"]
 on_switch = []
+# After forking a new worktree, check the main copy out to the base ref, so the clean
+# baseline stays on the most recently used base_branch (default true).
+checkout_main_copy = true
 
 # ---------- Context injection ----------
 

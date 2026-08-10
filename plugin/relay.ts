@@ -655,7 +655,7 @@ function switchProject(
     throw new Error(`Failed to create worktree (${project.name}): ${message}`);
   }
   log.info("switch_project", `worktree created: ${worktreeDir} (branch=${branch})`);
-  checkoutMainCopy(project, baseRef, log);
+  if (config.worktree.checkout_main_copy) checkoutMainCopy(project, baseRef, log);
 
   const env = runOnSwitch(config, log, worktreeDir, project.on_switch);
   const state: SessionState = {

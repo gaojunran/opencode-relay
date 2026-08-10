@@ -118,7 +118,7 @@ cp config.example.toml ~/.config/opencode-relay/config.toml
 | `[general]` | `enabled`、`home`（默认 `$HOME`，opt-out 边界）、`log_level`、`log_file`（logfmt、按天轮转） |
 | `[paths]` | `workspace_root`（干净主副本）、`worktree_root`、`state_dir` |
 | `[projects]` | 显式 `items[]`（推荐；每项可配 `base_branch` 分叉点——每次分叉后主副本会切到该分支——`fetch` 创建 worktree 前拉取远程（默认开启）、项目级 `on_switch` 环境命令）或 `scan_dir` 自动扫描含 `.git` 的子目录 |
-| `[worktree]` | `branch_prefix`、`end_of_session`（keep/push/cleanup）、`remote`、`stale_days`、`on_switch`（命令数组） |
+| `[worktree]` | `branch_prefix`、`end_of_session`（keep/push/cleanup）、`remote`、`stale_days`、`on_switch`（命令数组）、`checkout_main_copy`（每次分叉后主副本切到 base ref，默认 true） |
 | `[inject]` | 模板（占位符 `{project_id}` `{project_name}` `{workdir}` `{branch}`）、`list_projects`、`agents_md`、`skills` |
 | `[guard]` | `reject_on_violation`、`deny_paths` / `allow_paths` glob、`allow_dirs`（默认 `["/tmp"]`） |
 | `[permissions]` | 可选权限规则兜底（`yolo` 下被跳过） |

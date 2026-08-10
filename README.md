@@ -118,7 +118,7 @@ See [config.example.toml](config.example.toml) for a fully commented example. Al
 | `[general]` | `enabled`, `home` (default `$HOME`, opt-out boundary), `log_level`, `log_file` (logfmt, daily-rotated) |
 | `[paths]` | `workspace_root` (clean main copies), `worktree_root`, `state_dir` |
 | `[projects]` | explicit `items[]` (recommended; per-item `base_branch` fork point — the main copy is checked out to it after each fork — `fetch` remotes before worktree creation (default on), `on_switch` project-level env commands) or `scan_dir` auto-scan for `.git` subdirectories |
-| `[worktree]` | `branch_prefix`, `end_of_session` (keep/push/cleanup), `remote`, `stale_days`, `on_switch` (command array) |
+| `[worktree]` | `branch_prefix`, `end_of_session` (keep/push/cleanup), `remote`, `stale_days`, `on_switch` (command array), `checkout_main_copy` (check out the main copy to the base ref after each fork, default true) |
 | `[inject]` | template with `{project_id}` `{project_name}` `{workdir}` `{branch}`, `list_projects`, `agents_md`, `skills` |
 | `[guard]` | `reject_on_violation`, `deny_paths` / `allow_paths` globs, `allow_dirs` (default `["/tmp"]`) |
 | `[permissions]` | optional ruleset passthrough as a last-resort backstop (skipped under `yolo`) |

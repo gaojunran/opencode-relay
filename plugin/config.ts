@@ -38,7 +38,7 @@ export interface RelayConfig {
   general: { enabled: boolean; home: string; log_level: LogLevel; log_file: string };
   paths: { workspace_root: string; worktree_root: string; state_dir: string };
   projects: { items: ProjectItem[]; scan_dir?: string };
-  worktree: { branch_prefix: string; end_of_session: EndOfSessionStrategy; remote: string; stale_days: number; on_switch: string[] };
+  worktree: { branch_prefix: string; end_of_session: EndOfSessionStrategy; remote: string; stale_days: number; on_switch: string[]; checkout_main_copy: boolean };
   inject: { enabled: boolean; template: string; list_projects: boolean; agents_md: boolean; skills: boolean };
   guard: { enabled: boolean; reject_on_violation: boolean; deny_paths: string[]; allow_paths: string[]; allow_dirs: string[] };
   permissions: { enabled: boolean; rules: PermissionRule[] };
@@ -222,6 +222,9 @@ function buildConfig(raw: TomlTable): RelayConfig {
         : typeof worktree.on_switch === "string" && worktree.on_switch
           ? [worktree.on_switch]
           : [],
+      // After forking a new worktree, check the main copy out to the base ref, so the
+      // clean baseline stays on the most recently used base_branch. Default true.
+      checkout_main_copy: asBoolean(worktree.checkout_main_copy, true),
     },
     inject: {
       enabled: asBoolean(inject.enabled, true),

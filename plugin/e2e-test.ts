@@ -617,6 +617,26 @@ console.log("\n== project-level on_switch ==")
   console.log("project-level on_switch overrides global ✓")
 }
 
+// 15. checkout_main_copy = false keeps the main copy on its current branch.
+console.log("\n== checkout_main_copy = false ==")
+{
+  const confNoCheckout = conf.replace(
+    'end_of_session = "keep"',
+    'end_of_session = "keep"\ncheckout_main_copy = false',
+  )
+  fs.writeFileSync(path.join(configDir, "config.toml"), confNoCheckout)
+  resetConfig()
+  const hooksNoCheckout = await plugin.server({ directory: home, project: { id: "relay-test", directory: home } } as any)
+  const before = execFileSync("git", ["branch", "--show-current"], { cwd: repoPath, encoding: "utf8" }).trim()
+  await hooksNoCheckout.tool!.switch_project!.execute(
+    { project_id: "projBase" },
+    { sessionID: "ses_nockout1", directory: home } as any,
+  )
+  const after = execFileSync("git", ["branch", "--show-current"], { cwd: repoPath, encoding: "utf8" }).trim()
+  if (before !== after) throw new Error(`checkout_main_copy=false should not move the main copy: before=${before} after=${after}`)
+  console.log("checkout_main_copy=false keeps main copy branch ✓")
+}
+
 console.log("\n✅ P1 all verifications passed")
 // Cleanup
 fs.rmSync(R, { recursive: true, force: true })
